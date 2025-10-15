@@ -1,0 +1,36 @@
+# Core dependencies for PubTables dataset processing
+# Hugging Face datasets library for loading and processing datasets
+datasets>=2.14.0
+
+# Hugging Face Hub for accessing models and datasets
+huggingface-hub>=0.17.0
+
+# Additional utilities (already in standard library, but good to note)
+# - os: file system operations
+# - random: random sampling
+# - json: JSON file handling
+# - argparse: command-line argument parsing
+
+# Optional but recommended for better performance
+# PyArrow for faster dataset operations
+pyarrow>=12.0.0
+
+# Pandas for data manipulation (often used with datasets)
+pandas>=2.0.0
+
+# Visualization
+matplotlib>=3.7.0
+
+# Jupyter Lab and related packages
+jupyter-events==0.12.0
+jupyter-lsp==2.3.0
+jupyter_client==8.6.3
+jupyter_core==5.8.1
+jupyter_server==2.17.0
+jupyter_server_terminals==0.5.3
+jupyterlab==4.4.9
+jupyterlab_pygments==0.3.0
+jupyterlab_server==2.27.3
+
+# Interactive widgets for Jupyter (for progress bars and interactive elements)
+ipywidgets>=8.0.0
