@@ -63,12 +63,12 @@ echo ""
 
 # Structure dataset extraction
 echo "📊 Extracting Structure dataset..."
-mkdir -p PubTables-1M-Structure/{images,train,test,val,words}
-tar -xzf PubTables-1M-Structure_Filelists.tar.gz --directory PubTables-1M-Structure/
-tar -xzf PubTables-1M-Structure_Annotations_Test.tar.gz --directory PubTables-1M-Structure/test/
-tar -xzf PubTables-1M-Structure_Annotations_Train.tar.gz --directory PubTables-1M-Structure/train/
-tar -xzf PubTables-1M-Structure_Annotations_Val.tar.gz --directory PubTables-1M-Structure/val/
-tar -xzf PubTables-1M-Structure_Images_Test.tar.gz --directory PubTables-1M-Structure/images/
+# mkdir -p PubTables-1M-Structure/{images,train,test,val,words}
+# tar -xzf PubTables-1M-Structure_Filelists.tar.gz --directory PubTables-1M-Structure/
+# tar -xzf PubTables-1M-Structure_Annotations_Test.tar.gz --directory PubTables-1M-Structure/test/
+# tar -xzf PubTables-1M-Structure_Annotations_Train.tar.gz --directory PubTables-1M-Structure/train/
+# tar -xzf PubTables-1M-Structure_Annotations_Val.tar.gz --directory PubTables-1M-Structure/val/
+# tar -xzf PubTables-1M-Structure_Images_Test.tar.gz --directory PubTables-1M-Structure/images/
 tar -xzf PubTables-1M-Structure_Images_Train.tar.gz --directory PubTables-1M-Structure/images/
 tar -xzf PubTables-1M-Structure_Images_Val.tar.gz --directory PubTables-1M-Structure/images/
 tar -xzf PubTables-1M-Structure_Table_Words.tar.gz --directory PubTables-1M-Structure/words/
@@ -89,7 +89,7 @@ tar -xzf PubTables-1M-Detection_Page_Words.tar.gz --directory PubTables-1M-Detec
 echo ""
 echo "📄 Extracting PDF annotations..."
 mkdir -p PubTables-1M-PDF-Annotations/
-tar -xzf PubTables-1M-PDF_Annotations.tar.gz --directory PubTables-1M-PDF-Annotations
+# tar -xzf PubTables-1M-PDF_Annotations.tar.gz --directory PubTables-1M-PDF-Annotations
 
 echo ""
 echo -e "${GREEN}✅ Extraction complete!${NC}"
