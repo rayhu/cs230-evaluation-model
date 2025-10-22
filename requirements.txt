@@ -34,3 +34,22 @@ jupyterlab_server==2.27.3
 
 # Interactive widgets for Jupyter (for progress bars and interactive elements)
 ipywidgets>=8.0.0
+
+# Table Extraction Dependencies
+# PyTorch (required for Table Transformer and EasyOCR)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Hugging Face Transformers for Table Transformer model
+transformers>=4.30.0
+
+# EasyOCR for text recognition
+easyocr>=1.7.0
+
+# Image processing libraries
+Pillow>=10.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# Progress bars for batch processing
+tqdm>=4.65.0
