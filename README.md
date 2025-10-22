@@ -4,7 +4,7 @@ A deep learning project for evaluating table extraction performances.
 
 ## 🎯 Overview
 
-This project is part of Stanford's CS230 Deep Learning course, focusing on table understanding in scientific documents. We leverage the PubTables-1M dataset, which contains 1 million annotated table images from scientific papers.
+This project is part of Stanford's CS230 Deep Learning course, focusing on table understanding in scientific documents. We leverage the SciTSR dataset, which contains 15000 annotated table images from scientific papers.
 
 ## 📁 Project Structure
 
@@ -12,16 +12,13 @@ This project is part of Stanford's CS230 Deep Learning course, focusing on table
 cs230-evaluation-model/
 ├── data/                           # Dataset storage (gitignored)
 │   ├── README.md                   # Dataset documentation
-│   └── pubtables_raw/              # Downloaded data
+│   └── SciTSR/                     # Downloaded data
 ├── docs/                           # Project documentation
 ├── experiments/                    # Experiment configs and results
 ├── notebooks/                      # Jupyter notebooks for exploration
 │   └── 01_dataset_exploration.ipynb
 ├── scripts/                        # Utility scripts
-|   ├── extract_structure_dataset.sh
-│   └── download_pubtables_raw.py
-├── src/                            # Source code
-│   └── main.py
+│   └── extract_tables_scitsr.py    # Prepare the input JSON files for evalution model
 ├── requirements.txt                # Python dependencies
 ├── setup.sh                        # Automated environment setup
 ├── start_jupyter.sh                # Jupyter Lab launcher
@@ -43,12 +40,22 @@ cs230-evaluation-model/
 git clone <repository-url>
 cd cs230-evaluation-model
 
-# Run automated setup
+# Run automated setup or manually install using uv
+uv venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
+
+or
+
 ./setup.sh
 
-# Download the dataset and extract them
-python scripts/download_pubtables_raw.py --output data/pubtables_raw
-bash scripts/extract_structure_dataset.sh
+# Download the SciTSR dataset and extract them to data folder
+
+
+# Prepare the JSON input from the dataset for eveluation model
+python scripts/extract_tables_scitsr.py \
+  --input data/SciTSR/test/img \
+  --output data/SciTSR/test/json_output
 
 # Start Jupyter Lab
 ./start_jupyter.sh
@@ -56,6 +63,5 @@ bash scripts/extract_structure_dataset.sh
 
 ## 🙏 Acknowledgments
 
-- **PubTables-1M Dataset**: [bsmock/pubtables-1m](https://huggingface.co/datasets/bsmock/pubtables-1m)
 - **CS230 Teaching Team**: Stanford University
 - **Hugging Face**: For the datasets library and infrastructure
