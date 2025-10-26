@@ -25,7 +25,7 @@ score_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(score_module)
 load_cells_from_json = score_module.load_cells_from_json
 evaluate_extraction = score_module.evaluate_extraction
-
+evaluate_extraction_orig = score_module.evaluate_extraction_orig
 
 def process_single_file(
     generated_file: Path,
@@ -48,7 +48,7 @@ def process_single_file(
         generated_cells = load_cells_from_json(generated_file)
         gt_cells = load_cells_from_json(gt_file)
         
-        # Evaluate
+        # Evaluate, we can use evaluate_extraction_orig for the original score calculation
         scores = evaluate_extraction(generated_cells, gt_cells, iou_threshold)
         
         # Extract file identifier (without .json extension)
