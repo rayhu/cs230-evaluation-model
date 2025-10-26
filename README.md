@@ -51,6 +51,12 @@ or
 
 # Download the SciTSR dataset and extract them to data folder
 
+
+# Prepare the JSON input from the dataset for eveluation model
+python scripts/extract_tables_scitsr.py \
+  --input data/SciTSR/train/img \
+  --output data/SciTSR/train/json_output
+
 # Start Jupyter Lab
 ./start_jupyter.sh
 ```
