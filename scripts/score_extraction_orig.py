@@ -212,12 +212,12 @@ def evaluate_extraction(
     row_accuracy = 1.0 - abs(pred_rows - gt_rows) / max(pred_rows, gt_rows, 1)
     col_accuracy = 1.0 - abs(pred_cols - gt_cols) / max(pred_cols, gt_cols, 1)
     
-    # Overall score (weighted combination - STRUCTURE FOCUSED)
-    # Removed content accuracy since evaluation model should judge structure only
+    # Overall score (weighted combination)
     overall_score = (
-        0.50 * f1 +  # Cell detection (primary metric)
-        0.25 * row_accuracy +  # Grid structure
-        0.25 * col_accuracy  # Grid structure
+        0.4 * f1 +  # Cell detection is most important
+        0.3 * avg_text_similarity +  # Text accuracy
+        0.15 * row_accuracy +  # Structure accuracy
+        0.15 * col_accuracy
     )
     
     return {
@@ -278,14 +278,6 @@ def print_evaluation_report(scores: Dict[str, Any], detailed: bool = False) -> N
     # Overall score
     print(f"\n📊 OVERALL SCORE: {scores['overall_score']:.3f} ({scores['overall_score']*100:.1f}%)")
     
-    print(
-"""
-overall_score = (
-0.50 * f1 +  # Cell detection (primary metric)
-0.25 * row_accuracy +  # Grid structure
-0.25 * col_accuracy  # Grid structure
-
-""")
     # Cell detection
     cd = scores['cell_detection']
     print(f"\n🔍 Cell Detection:")
@@ -294,12 +286,12 @@ overall_score = (
     print(f"  F1 Score:  {cd['f1']:.3f} ({cd['f1']*100:.1f}%)")
     print(f"  TP: {cd['true_positives']}, FP: {cd['false_positives']}, FN: {cd['false_negatives']}")
     
-    # # Content accuracy
-    # ca = scores['content_accuracy']
-    # print(f"\n📝 Content Accuracy:")
-    # print(f"  Avg Text Similarity: {ca['avg_text_similarity']:.3f} ({ca['avg_text_similarity']*100:.1f}%)")
-    # print(f"  Exact Match Rate:    {ca['exact_match_rate']:.3f} ({ca['exact_match_rate']*100:.1f}%)")
-    # print(f"  Exact Matches: {ca['exact_matches']}/{ca['total_matched']}")
+    # Content accuracy
+    ca = scores['content_accuracy']
+    print(f"\n📝 Content Accuracy:")
+    print(f"  Avg Text Similarity: {ca['avg_text_similarity']:.3f} ({ca['avg_text_similarity']*100:.1f}%)")
+    print(f"  Exact Match Rate:    {ca['exact_match_rate']:.3f} ({ca['exact_match_rate']*100:.1f}%)")
+    print(f"  Exact Matches: {ca['exact_matches']}/{ca['total_matched']}")
     
     # Structure accuracy
     sa = scores['structure_accuracy']
@@ -391,15 +383,14 @@ def batch_evaluate(
         'distribution': {}
     }
     
-    # Calculate averages for each metric (structure-focused)
+    # Calculate averages for each metric
     metrics = [
         ('overall_score', lambda s: s['overall_score']),
         ('cell_precision', lambda s: s['cell_detection']['precision']),
         ('cell_recall', lambda s: s['cell_detection']['recall']),
         ('cell_f1', lambda s: s['cell_detection']['f1']),
-        # Content accuracy removed from primary metrics (kept in detailed report)
-        # ('text_similarity', lambda s: s['content_accuracy']['avg_text_similarity']),
-        # ('exact_match_rate', lambda s: s['content_accuracy']['exact_match_rate']),
+        ('text_similarity', lambda s: s['content_accuracy']['avg_text_similarity']),
+        ('exact_match_rate', lambda s: s['content_accuracy']['exact_match_rate']),
         ('row_accuracy', lambda s: s['structure_accuracy']['row_accuracy']),
         ('col_accuracy', lambda s: s['structure_accuracy']['col_accuracy'])
     ]
@@ -453,11 +444,12 @@ def print_batch_report(aggregated: Dict[str, Any]) -> None:
     avgs = aggregated['averages']
     ranges = aggregated['ranges']
     
-    print(f"  Overall Score:     {avgs['overall_score']:.3f} ± {ranges['overall_score']['std']:.3f} (structure-focused)")
+    print(f"  Overall Score:     {avgs['overall_score']:.3f} ± {ranges['overall_score']['std']:.3f}")
     print(f"  Cell F1:           {avgs['cell_f1']:.3f} ± {ranges['cell_f1']['std']:.3f}")
     print(f"  Cell Precision:    {avgs['cell_precision']:.3f} ± {ranges['cell_precision']['std']:.3f}")
     print(f"  Cell Recall:       {avgs['cell_recall']:.3f} ± {ranges['cell_recall']['std']:.3f}")
-    # Content metrics removed from summary (kept in individual scores)
+    print(f"  Text Similarity:   {avgs['text_similarity']:.3f} ± {ranges['text_similarity']['std']:.3f}")
+    print(f"  Exact Match Rate:  {avgs['exact_match_rate']:.3f} ± {ranges['exact_match_rate']['std']:.3f}")
     print(f"  Row Accuracy:      {avgs['row_accuracy']:.3f} ± {ranges['row_accuracy']['std']:.3f}")
     print(f"  Col Accuracy:      {avgs['col_accuracy']:.3f} ± {ranges['col_accuracy']['std']:.3f}")
     

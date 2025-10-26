@@ -214,3 +214,5 @@ data/*
 *.pt
 !data/README.md
 !data/extract_structure_dataset.sh
+
+dataset/*
