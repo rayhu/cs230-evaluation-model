@@ -216,3 +216,4 @@ data/*
 !data/extract_structure_dataset.sh
 
 dataset/*
+dataset_parquet/

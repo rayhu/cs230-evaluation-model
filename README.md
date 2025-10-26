@@ -134,8 +134,28 @@ python scripts/validate_outputs.py \
 
 **Your contribution**: The scoring system and extracted data will be training labels for the verifier model.
 
+## 📦 Dataset Available on Hugging Face
+
+Our table extraction evaluation dataset is now available on Hugging Face Hub!
+
+**Dataset**: [rayhu/table-extraction-evaluation](https://huggingface.co/datasets/rayhu/table-extraction-evaluation)
+
+```python
+from datasets import load_dataset
+
+# Load the dataset
+dataset = load_dataset("rayhu/table-extraction-evaluation")
+
+# Access splits
+train = dataset['train']  # 11,971 examples
+test = dataset['test']    # 3,000 examples
+```
+
+📖 See [`DATASET_USAGE.md`](DATASET_USAGE.md) for detailed usage instructions.
+
 ## 📚 Documentation
 
+- [`DATASET_USAGE.md`](DATASET_USAGE.md) - How to use the dataset
 - [`docs/EVALUATION_GUIDE.md`](docs/EVALUATION_GUIDE.md) - Complete evaluation metrics guide
 - [`docs/proposal/`](docs/proposal/) - Project proposal PDF
 - [`SETUP.md`](SETUP.md) - Detailed setup instructions
