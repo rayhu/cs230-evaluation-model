@@ -129,10 +129,28 @@ python scripts/validate_outputs.py \
 **Pipeline:**
 1. ✅ Extract tables from 3000 test images → Generate predictions
 2. ✅ Score predictions against ground truth → Get quality metrics (0-1 scores)
-3. ⏭️ Train neural verifier: (table_image, extracted_json) → predicted_quality_score
-4. ⏭️ Deploy: Automatically assess new extractions without manual annotation
+3. ✅ Train neural verifier: (table_image, extracted_json) → predicted_quality_score
+4. ✅ Deploy: Automatically assess new extractions without manual annotation
 
 **Your contribution**: The scoring system and extracted data will be training labels for the verifier model.
+
+### 🤖 MLP Regressor (Simple Baseline Model)
+
+We've implemented a simple TF-IDF + MLP baseline model that predicts quality scores from table JSON alone:
+
+```bash
+# Train the model
+python scripts/train_mlp_regressor.py \
+  --epochs 10 \
+  --output-dir experiments/mlp_regressor
+
+# Test on the test set
+python scripts/evaluate_on_test_set.py   --model-dir experiments/mlp_regressor   --output custom_results/evaluation.json   --plot-dir custom_results/plots
+```
+
+**Architecture**: JSON → TF-IDF (10k features) → MLP (256→64→1) → Quality Score
+
+📖 See [`docs/MLP_REGRESSOR_GUIDE.md`](docs/MLP_REGRESSOR_GUIDE.md) for complete training and usage guide.
 
 ## 📦 Dataset Available on Hugging Face
 
@@ -157,6 +175,7 @@ test = dataset['test']    # 3,000 examples
 
 - [`DATASET_USAGE.md`](DATASET_USAGE.md) - How to use the dataset
 - [`docs/EVALUATION_GUIDE.md`](docs/EVALUATION_GUIDE.md) - Complete evaluation metrics guide
+- [`docs/MLP_REGRESSOR_GUIDE.md`](docs/MLP_REGRESSOR_GUIDE.md) - MLP baseline model training and usage
 - [`docs/proposal/`](docs/proposal/) - Project proposal PDF
 - [`SETUP.md`](SETUP.md) - Detailed setup instructions
 
