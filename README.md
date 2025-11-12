@@ -68,108 +68,14 @@ or
 
 ./setup.sh
 
-# Download the SciTSR dataset and extract them to data folder
-
-
-# Prepare the JSON input from the dataset for eveluation model
-python scripts/extract_tables_scitsr.py \
-  --input data/SciTSR/train/img \
-  --output data/SciTSR/train/json_output
 
 # Start Jupyter Lab
 ./start_jupyter.sh
 ```
 
-## 📊 Table Extraction & Evaluation Workflow
-
-### 1. Extract Tables from Images
-
-Process SciTSR test images using Table Transformer + EasyOCR (GPU-accelerated):
-
-```bash
-# Test on single image
-python scripts/extract_tables_scitsr.py \
-  --single data/SciTSR/test/img/0704.1068v2.1.png \
-  --output data/SciTSR/test/json_output
-
-# Process all 3000 test images (~8-10 hours on Apple Silicon MPS)
-python scripts/extract_tables_scitsr.py \
-  --input data/SciTSR/test/img \
-  --output data/SciTSR/test/json_output
-
-# Test with first 10 images
-python scripts/extract_tables_scitsr.py \
-  --input data/SciTSR/test/img \
-  --output data/SciTSR/test/json_output \
-  --limit 10
-```
-
-### 2. Evaluate Extraction Quality
-
-Compare extracted tables with ground truth using multiple metrics:
-
-```bash
-# Evaluate single file
-python scripts/score_extraction.py \
-  --pred data/SciTSR/test/json_output/0704.1068v2.1.json \
-  --gt data/SciTSR/test/structure/0704.1068v2.1.json \
-  --detailed
-
-# Batch evaluation (all files)
-python scripts/score_extraction.py \
-  --pred data/SciTSR/test/json_output \
-  --gt data/SciTSR/test/structure \
-  --output results/evaluation_scores.json
-```
-
-**Evaluation Metrics Provided:**
-- **Cell Detection**: Precision, Recall, F1 (IoU-based matching)
-- **Content Accuracy**: Text similarity, exact match rate  
-- **Structure Accuracy**: Row/column detection accuracy
-- **Overall Score**: Weighted combination (0-1 scale)
-
-📖 See [`docs/EVALUATION_GUIDE.md`](docs/EVALUATION_GUIDE.md) for detailed explanation of metrics.
-
-### 3. Validate Output Format
-
-Check JSON format validity and statistics:
-
-```bash
-python scripts/validate_outputs.py \
-  --output-dir data/SciTSR/test/json_output \
-  --gt-dir data/SciTSR/test/structure \
-  --save-report results/validation_report.json
-```
-
 ## 🎯 Project Goal: Neural Verifier
 
 **Objective**: Build a neural network that can predict table extraction quality **without** ground truth.
-
-**Pipeline:**
-1. ✅ Extract tables from 3000 test images → Generate predictions
-2. ✅ Score predictions against ground truth → Get quality metrics (0-1 scores)
-3. ✅ Train neural verifier: (table_image, extracted_json) → predicted_quality_score
-4. ✅ Deploy: Automatically assess new extractions without manual annotation
-
-**Your contribution**: The scoring system and extracted data will be training labels for the verifier model.
-
-### 🤖 MLP Regressor (Simple Baseline Model)
-
-We've implemented a simple TF-IDF + MLP baseline model that predicts quality scores from table JSON alone:
-
-```bash
-# Train the model
-python scripts/train_mlp_regressor.py \
-  --epochs 10 \
-  --output-dir experiments/mlp_regressor
-
-# Test on the test set
-python scripts/evaluate_on_test_set.py   --model-dir experiments/mlp_regressor   --output custom_results/evaluation.json   --plot-dir custom_results/plots
-```
-
-**Architecture**: JSON → TF-IDF (10k features) → MLP (256→64→1) → Quality Score
-
-📖 See [`docs/MLP_REGRESSOR_GUIDE.md`](docs/MLP_REGRESSOR_GUIDE.md) for complete training and usage guide.
 
 ## 📦 Dataset Available on Hugging Face
 
@@ -187,16 +93,6 @@ dataset = load_dataset("rayhu/table-extraction-evaluation")
 train = dataset['train']  # 11,971 examples
 test = dataset['test']    # 3,000 examples
 ```
-
-📖 See [`DATASET_USAGE.md`](DATASET_USAGE.md) for detailed usage instructions.
-
-## 📚 Documentation
-
-- [`DATASET_USAGE.md`](DATASET_USAGE.md) - How to use the dataset
-- [`docs/EVALUATION_GUIDE.md`](docs/EVALUATION_GUIDE.md) - Complete evaluation metrics guide
-- [`docs/MLP_REGRESSOR_GUIDE.md`](docs/MLP_REGRESSOR_GUIDE.md) - MLP baseline model training and usage
-- [`docs/proposal/`](docs/proposal/) - Project proposal PDF
-- [`SETUP.md`](SETUP.md) - Detailed setup instructions
 
 ## 🙏 Acknowledgments
 
