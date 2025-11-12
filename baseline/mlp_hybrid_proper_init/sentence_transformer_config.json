@@ -1,4 +1,0 @@
-{
-  "model_name": "sentence-transformers/all-mpnet-base-v2",
-  "use_hybrid_features": true
-}
