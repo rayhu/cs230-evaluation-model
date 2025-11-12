@@ -202,7 +202,7 @@ def evaluate(model, dataloader, loss_fn, device):
     - MSE, MAE, RMSE: Standard regression metrics
     - MAPE: Mean Absolute Percentage Error - normalizes errors by ground truth magnitude
     - R²: Coefficient of Determination - measures how well predictions explain variance
-    - Accuracy (±5%, ±10%): Percentage of predictions within tolerance thresholds
+    - Accuracy (±1%, ±5%, ±10%): Percentage of predictions within tolerance thresholds
     - Median AE: More robust to outliers than MAE
     
     These metrics are more appropriate than exact matching for percentage comparisons
@@ -246,8 +246,9 @@ def evaluate(model, dataloader, loss_fn, device):
     r2 = 1 - (ss_res / (ss_tot + epsilon))
     r2 = r2.item()
     
-    # Tolerance-based accuracy (percentage within ±5% and ±10%)
+    # Tolerance-based accuracy (percentage within ±1%, ±5%, ±10%)
     abs_diff = torch.abs(all_preds - all_targets)
+    acc_1pct = (abs_diff <= 0.01).float().mean().item() * 100
     acc_5pct = (abs_diff <= 0.05).float().mean().item() * 100
     acc_10pct = (abs_diff <= 0.10).float().mean().item() * 100
     
@@ -260,6 +261,7 @@ def evaluate(model, dataloader, loss_fn, device):
         'rmse': rmse,
         'mape': mape,  # Mean Absolute Percentage Error
         'r2': r2,  # R² Score
+        'acc_1pct': acc_1pct,  # % predictions within ±0.01 of truth
         'acc_5pct': acc_5pct,  # % predictions within ±0.05 of truth
         'acc_10pct': acc_10pct,  # % predictions within ±0.10 of truth
         'median_ae': median_ae  # Median absolute error
@@ -277,6 +279,7 @@ def train_model(
     hidden_dim1: int = 256,
     hidden_dim2: int = 64,
     dropout_rate: float = 0.0,
+    weight_decay: float = 1e-4,
     device: str = 'cpu',
     checkpoint_dir: Path = None,
     use_improved_model: bool = False,
@@ -356,9 +359,9 @@ def train_model(
     model.to(device)
     model.train()  # Set back to training mode
     
-    # Loss and optimizer
+    # Loss and optimizer with L2 regularization to combat overfitting
     loss_fn = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     
     # Learning rate scheduler - reduce LR when validation plateaus
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -380,6 +383,7 @@ def train_model(
     print(f"Model architecture: {input_dim} -> {hidden_dim1} -> {hidden_dim2} -> 1")
     print(f"Training samples: {len(train_ds)}, Validation samples: {len(val_ds)}")
     print(f"Epochs: {epochs}, Batch size: {batch_size}, LR: {learning_rate}")
+    print(f"Dropout: {dropout_rate}, Weight decay (L2): {weight_decay}")
     print(f"Early stopping patience: {early_stop_patience}\n")
     
     for epoch in range(epochs):
@@ -403,6 +407,7 @@ def train_model(
         print(f"  Val RMSE:    {val_metrics['rmse']:.4f}")
         print(f"  Val R²:      {val_metrics['r2']:.4f}")
         print(f"  Val MAPE:    {val_metrics['mape']:.2f}%")
+        print(f"  Acc (±1%):   {val_metrics['acc_1pct']:.1f}%")
         print(f"  Acc (±5%):   {val_metrics['acc_5pct']:.1f}%")
         print(f"  Acc (±10%):  {val_metrics['acc_10pct']:.1f}%")
         
@@ -455,6 +460,7 @@ def plot_training_history(history, save_dir: Path):
     val_rmse = [m['rmse'] for m in history['val_metrics']]
     val_mse = [m['mse'] for m in history['val_metrics']]
     val_r2 = [m['r2'] for m in history['val_metrics']]
+    val_acc_1pct = [m['acc_1pct'] for m in history['val_metrics']]
     val_acc_5pct = [m['acc_5pct'] for m in history['val_metrics']]
     val_acc_10pct = [m['acc_10pct'] for m in history['val_metrics']]
     
@@ -492,14 +498,15 @@ def plot_training_history(history, save_dir: Path):
     ax3_1.grid(True, alpha=0.3)
     
     # Accuracy on right axis
-    line2 = ax3_2.plot(epochs, val_acc_5pct, 'blue', linewidth=2, label='Acc (±5%)', marker='o', markersize=4)
-    line3 = ax3_2.plot(epochs, val_acc_10pct, 'cyan', linewidth=2, label='Acc (±10%)', marker='s', markersize=4)
+    line2 = ax3_2.plot(epochs, val_acc_1pct, 'green', linewidth=2, label='Acc (±1%)', marker='^', markersize=4)
+    line3 = ax3_2.plot(epochs, val_acc_5pct, 'blue', linewidth=2, label='Acc (±5%)', marker='o', markersize=4)
+    line4 = ax3_2.plot(epochs, val_acc_10pct, 'cyan', linewidth=2, label='Acc (±10%)', marker='s', markersize=4)
     ax3_2.set_ylabel('Accuracy (%)', fontsize=12, color='blue')
     ax3_2.tick_params(axis='y', labelcolor='blue')
     ax3_2.set_ylim([0, 100])
     
     # Combine legends
-    lines = line1 + line2 + line3
+    lines = line1 + line2 + line3 + line4
     labels = [l.get_label() for l in lines]
     ax3_1.legend(lines, labels, fontsize=10, loc='best')
     ax3_1.set_title('R² and Accuracy Metrics', fontsize=14, fontweight='bold')
@@ -587,7 +594,13 @@ def main():
         '--dropout',
         type=float,
         default=0.0,
-        help='Dropout rate (default: 0.4)'
+        help='Dropout rate (default: 0.0)'
+    )
+    parser.add_argument(
+        '--weight-decay',
+        type=float,
+        default=1e-4,
+        help='L2 regularization strength (default: 1e-4)'
     )
     parser.add_argument(
         '--val-split',
@@ -699,6 +712,7 @@ def main():
         hidden_dim1=args.hidden_dim1,
         hidden_dim2=args.hidden_dim2,
         dropout_rate=args.dropout,
+        weight_decay=args.weight_decay,
         device=args.device,
         checkpoint_dir=args.output_dir,
         use_improved_model=args.use_improved_model,
