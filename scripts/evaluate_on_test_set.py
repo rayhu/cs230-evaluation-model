@@ -5,20 +5,19 @@ Evaluate MLP regressor predictions against ground truth from Hugging Face datase
 This script loads the test split from rayhu/table-extraction-evaluation,
 extracts ground truth similarity scores, and compares them with model predictions.
 
-Supports both TF-IDF (legacy) and Word2Vec models.
+Supports both TF-IDF (legacy), Word2Vec (legacy), and Sentence Transformer models.
 """
 
 import argparse
 import json
 import sys
-import re
 from pathlib import Path
 
 import numpy as np
 import torch
 from datasets import load_dataset
 from tqdm import tqdm
-from gensim.models import Word2Vec
+from sentence_transformers import SentenceTransformer
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
@@ -44,34 +43,17 @@ def load_test_ground_truth():
     return ground_truth
 
 
-def tokenize_json(text: str):
-    """Tokenize JSON text into words."""
-    tokens = re.findall(r'\b\w+\b', text.lower())
-    return tokens
-
-
-def doc_to_vec(tokens, w2v_model):
-    """Convert document tokens to average Word2Vec vector."""
-    vectors = []
-    for word in tokens:
-        if word in w2v_model.wv:
-            vectors.append(w2v_model.wv[word])
-    if vectors:
-        return np.mean(vectors, axis=0)
-    else:
-        return np.zeros(w2v_model.vector_size)
-
-
-def predict_all_test_samples(model, feature_extractor, scaler, device='cpu', use_word2vec=True):
+def predict_all_test_samples(model, feature_extractor, scaler, device='cpu', model_type='sentence_transformer', use_hybrid=False):
     """
     Predict quality scores for all test samples.
     
     Args:
         model: Trained MLP model
-        feature_extractor: Word2Vec model or TF-IDF vectorizer
-        scaler: StandardScaler for feature normalization (Word2Vec only)
+        feature_extractor: Sentence Transformer model, Word2Vec model, or TF-IDF vectorizer
+        scaler: StandardScaler for feature normalization
         device: Device to run inference on
-        use_word2vec: Whether using Word2Vec (True) or TF-IDF (False)
+        model_type: Type of feature extractor ('sentence_transformer', 'word2vec', or 'tfidf')
+        use_hybrid: Whether to use hybrid features (structure + text + embeddings)
     
     Returns:
         Dictionary mapping sample IDs to predicted scores
@@ -79,39 +61,101 @@ def predict_all_test_samples(model, feature_extractor, scaler, device='cpu', use
     print("Loading test dataset for prediction...")
     dataset = load_dataset("rayhu/table-extraction-evaluation", split='test')
     
-    predictions = {}
+    # Convert to texts
+    texts = [json.dumps(sample['generated']) for sample in dataset]
+    sample_ids = [sample['id'] for sample in dataset]
     
-    print(f"Generating predictions using {'Word2Vec' if use_word2vec else 'TF-IDF'}...")
-    for sample in tqdm(dataset, desc="Predicting"):
-        sample_id = sample['id']
-        
-        # Convert generated table to JSON string
-        text = json.dumps(sample['generated'])
-        
-        # Extract features
-        if use_word2vec:
-            # Word2Vec: tokenize, convert to vector, scale
-            tokens = tokenize_json(text)
-            vec = doc_to_vec(tokens, feature_extractor)
-            features = scaler.transform([vec])
+    print(f"Generating predictions using {model_type}...")
+    if use_hybrid:
+        print("  Using hybrid features (structure + text stats + embeddings)")
+    
+    if model_type == 'sentence_transformer':
+        if use_hybrid:
+            # Extract hybrid features
+            from utils.table_features import extract_all_features
+            features = []
+            for text in tqdm(texts, desc="Extracting hybrid features"):
+                feat = extract_all_features(
+                    text,
+                    sentence_transformer=feature_extractor,
+                    normalize_embeddings=False
+                )
+                features.append(feat)
+            features = np.array(features)
         else:
-            # TF-IDF (legacy)
-            features = feature_extractor.transform([text]).toarray()
+            # Encode all texts at once with sentence transformer
+            features = feature_extractor.encode(
+                texts,
+                show_progress_bar=True,
+                batch_size=32,
+                convert_to_numpy=True,
+                normalize_embeddings=False
+            )
+        # Standardize
+        features = scaler.transform(features)
         
-        features_tensor = torch.tensor(features, dtype=torch.float32).to(device)
+    elif model_type == 'word2vec':
+        # Legacy Word2Vec support
+        from gensim.models import Word2Vec
+        import re
+        from collections import Counter
         
-        # Predict
-        with torch.no_grad():
-            score = model(features_tensor).item()
+        def tokenize_json(text: str):
+            tokens = re.findall(r'\b\w+\b', text.lower())
+            return tokens
         
-        predictions[sample_id] = score
+        def doc_to_vec(tokens, w2v_model, idf_scores=None):
+            if idf_scores is None:
+                vectors = [w2v_model.wv[word] for word in tokens if word in w2v_model.wv]
+                return np.mean(vectors, axis=0) if vectors else np.zeros(w2v_model.vector_size)
+            else:
+                vectors, weights = [], []
+                token_counts = Counter(tokens)
+                total_tokens = len(tokens)
+                for word in set(tokens):
+                    if word in w2v_model.wv:
+                        tf = token_counts[word] / total_tokens
+                        idf_score = idf_scores.get(word, 1.0)
+                        vectors.append(w2v_model.wv[word])
+                        weights.append(tf * idf_score)
+                if vectors:
+                    return np.average(np.array(vectors), axis=0, weights=np.array(weights))
+                return np.zeros(w2v_model.vector_size)
+        
+        features = []
+        for text in tqdm(texts, desc="Extracting Word2Vec features"):
+            tokens = tokenize_json(text)
+            vec = doc_to_vec(tokens, feature_extractor, None)
+            features.append(vec)
+        features = np.array(features)
+        features = scaler.transform(features)
+        
+    else:  # tfidf
+        # Legacy TF-IDF support
+        features = feature_extractor.transform(texts).toarray()
+    
+    # Batch prediction
+    predictions = {}
+    features_tensor = torch.tensor(features, dtype=torch.float32).to(device)
+    
+    with torch.no_grad():
+        scores = model(features_tensor).cpu().numpy()
+    
+    for sample_id, score in zip(sample_ids, scores):
+        predictions[sample_id] = float(score)
     
     print(f"Generated {len(predictions)} predictions")
     return predictions
 
 
 def compute_metrics(predictions, ground_truth):
-    """Compute evaluation metrics."""
+    """
+    Compute comprehensive evaluation metrics for percentage/score predictions.
+    
+    These metrics are more appropriate than exact matching for percentage comparisons
+    because they account for the relative magnitude of errors and provide tolerance-based
+    assessments that are more meaningful for continuous scores in [0, 1] range.
+    """
     # Align predictions and ground truth
     ids = []
     pred_scores = []
@@ -127,32 +171,42 @@ def compute_metrics(predictions, ground_truth):
     gt_scores = np.array(gt_scores)
     
     # Error metrics
-    mae = np.mean(np.abs(pred_scores - gt_scores))
+    abs_diff = np.abs(pred_scores - gt_scores)
+    mae = np.mean(abs_diff)
     rmse = np.sqrt(np.mean((pred_scores - gt_scores) ** 2))
     mse = np.mean((pred_scores - gt_scores) ** 2)
+    
+    # Median Absolute Error (more robust to outliers)
+    median_ae = np.median(abs_diff)
     
     # Correlation
     correlation = np.corrcoef(pred_scores, gt_scores)[0, 1]
     
-    # R-squared
+    # R-squared (Coefficient of Determination)
     ss_res = np.sum((gt_scores - pred_scores) ** 2)
     ss_tot = np.sum((gt_scores - np.mean(gt_scores)) ** 2)
     r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
     
-    # Mean Absolute Percentage Error
-    mask = gt_scores > 1e-6
-    if np.any(mask):
-        mape = np.mean(np.abs((gt_scores[mask] - pred_scores[mask]) / gt_scores[mask])) * 100
-    else:
-        mape = float('inf')
+    # Mean Absolute Percentage Error (normalized by ground truth)
+    epsilon = 1e-8
+    mape = np.mean(np.abs((gt_scores - pred_scores) / (gt_scores + epsilon))) * 100
+    
+    # Tolerance-based accuracy (percentage within ±5% and ±10%)
+    acc_5pct = (abs_diff <= 0.05).astype(float).mean() * 100
+    acc_10pct = (abs_diff <= 0.10).astype(float).mean() * 100
+    acc_15pct = (abs_diff <= 0.15).astype(float).mean() * 100
     
     return {
         'mae': float(mae),
         'rmse': float(rmse),
         'mse': float(mse),
+        'median_ae': float(median_ae),
         'correlation': float(correlation),
         'r2_score': float(r2),
-        'mape': float(mape) if mape != float('inf') else None,
+        'mape': float(mape),
+        'acc_5pct': float(acc_5pct),   # % predictions within ±0.05
+        'acc_10pct': float(acc_10pct), # % predictions within ±0.10
+        'acc_15pct': float(acc_15pct), # % predictions within ±0.15
         'num_samples': len(ids)
     }
 
@@ -347,16 +401,43 @@ def main():
     print("="*70)
     
     import pickle
-    from mlp_regressor import MLPRegressor
+    from mlp_regressor import MLPRegressor, ImprovedMLPRegressor, DeepMLPRegressor
     
-    # Detect model type (Word2Vec or TF-IDF)
+    # Detect model type (Sentence Transformer, Word2Vec, or TF-IDF)
+    sentence_transformer_config_path = args.model_dir / 'sentence_transformer_config.json'
     word2vec_path = args.model_dir / 'word2vec_model.bin'
     tfidf_path = args.model_dir / 'tfidf_vectorizer.pkl'
     
-    if word2vec_path.exists():
-        # Word2Vec model
-        use_word2vec = True
-        print("Detected Word2Vec model")
+    if sentence_transformer_config_path.exists():
+        # Sentence Transformer model
+        model_type = 'sentence_transformer'
+        print("Detected Sentence Transformer model")
+        
+        # Load config
+        with open(sentence_transformer_config_path, 'r') as f:
+            config = json.load(f)
+        model_name = config['model_name']
+        use_hybrid_features = config.get('use_hybrid_features', False)
+        
+        # Load Sentence Transformer
+        feature_extractor = SentenceTransformer(model_name)
+        print(f"✓ Loaded Sentence Transformer: {model_name}")
+        print(f"  Embedding dimension: {feature_extractor.get_sentence_embedding_dimension()}")
+        if use_hybrid_features:
+            print(f"  Using hybrid features (structure + text + embeddings)")
+        
+        # Load scaler
+        scaler_path = args.model_dir / 'feature_scaler.pkl'
+        with open(scaler_path, 'rb') as f:
+            scaler = pickle.load(f)
+        print(f"✓ Loaded feature scaler from {scaler_path}")
+        
+    elif word2vec_path.exists():
+        # Word2Vec model (legacy)
+        from gensim.models import Word2Vec
+        model_type = 'word2vec'
+        use_hybrid_features = False
+        print("Detected Word2Vec model (legacy)")
         
         # Load Word2Vec
         feature_extractor = Word2Vec.load(str(word2vec_path))
@@ -372,7 +453,8 @@ def main():
         
     elif tfidf_path.exists():
         # TF-IDF model (legacy)
-        use_word2vec = False
+        model_type = 'tfidf'
+        use_hybrid_features = False
         print("Detected TF-IDF model (legacy)")
         
         with open(tfidf_path, 'rb') as f:
@@ -384,6 +466,7 @@ def main():
         raise FileNotFoundError(
             f"No feature extractor found in {args.model_dir}\n"
             f"Expected either:\n"
+            f"  - {sentence_transformer_config_path} (Sentence Transformer)\n"
             f"  - {word2vec_path} (Word2Vec)\n"
             f"  - {tfidf_path} (TF-IDF)"
         )
@@ -396,16 +479,49 @@ def main():
     checkpoint = torch.load(model_path, map_location=args.device)
     hyperparams = checkpoint['hyperparameters']
     
-    model = MLPRegressor(
-        input_dim=hyperparams['input_dim'],
-        hidden_dim1=hyperparams['hidden_dim1'],
-        hidden_dim2=hyperparams['hidden_dim2'],
-        dropout_rate=hyperparams.get('dropout_rate', 0.0)
-    )
+    # Detect model class from state dict keys
+    state_dict_keys = list(checkpoint['model_state_dict'].keys())
+    
+    if any('layers.' in key for key in state_dict_keys):
+        # DeepMLPRegressor
+        model_class = DeepMLPRegressor
+        model_name = "DeepMLPRegressor"
+        # Extract hidden dims from state dict if available
+        hidden_dims = hyperparams.get('hidden_dims', None)
+        model = DeepMLPRegressor(
+            input_dim=hyperparams['input_dim'],
+            hidden_dims=hidden_dims,
+            dropout_rate=hyperparams.get('dropout_rate', 0.0),
+            use_residual=hyperparams.get('use_residual', True),
+            use_layer_norm=hyperparams.get('use_layer_norm', False)
+        )
+    elif any('fc1.' in key for key in state_dict_keys):
+        # ImprovedMLPRegressor
+        model_class = ImprovedMLPRegressor
+        model_name = "ImprovedMLPRegressor"
+        model = ImprovedMLPRegressor(
+            input_dim=hyperparams['input_dim'],
+            hidden_dim1=hyperparams['hidden_dim1'],
+            hidden_dim2=hyperparams['hidden_dim2'],
+            dropout_rate=hyperparams.get('dropout_rate', 0.0),
+            use_residual=hyperparams.get('use_residual', True)
+        )
+    else:
+        # Basic MLPRegressor
+        model_class = MLPRegressor
+        model_name = "MLPRegressor"
+        model = MLPRegressor(
+            input_dim=hyperparams['input_dim'],
+            hidden_dim1=hyperparams['hidden_dim1'],
+            hidden_dim2=hyperparams['hidden_dim2'],
+            dropout_rate=hyperparams.get('dropout_rate', 0.0)
+        )
+    
     model.load_state_dict(checkpoint['model_state_dict'])
     model.to(args.device)
     model.eval()
     print(f"✓ Loaded model from {model_path}")
+    print(f"  Model type: {model_name}")
     print(f"  Architecture: {hyperparams['input_dim']} -> {hyperparams['hidden_dim1']} -> {hyperparams['hidden_dim2']} -> 1")
     
     # Load ground truth
@@ -418,7 +534,7 @@ def main():
     print("\n" + "="*70)
     print("GENERATING PREDICTIONS")
     print("="*70)
-    predictions = predict_all_test_samples(model, feature_extractor, scaler, args.device, use_word2vec)
+    predictions = predict_all_test_samples(model, feature_extractor, scaler, args.device, model_type, use_hybrid_features)
     
     # Compute metrics
     print("\n" + "="*70)
@@ -432,7 +548,7 @@ def main():
     # Prepare results
     results = {
         'model_dir': str(args.model_dir),
-        'model_type': 'word2vec' if use_word2vec else 'tfidf',
+        'model_type': model_type,
         'test_set_size': len(ground_truth),
         'num_predictions': len(predictions),
         'metrics': metrics,
@@ -456,11 +572,15 @@ def main():
     
     print(f"\n📈 Performance Metrics:")
     print(f"  MAE (Mean Absolute Error):      {metrics['mae']:.4f}")
+    print(f"  Median AE (Median Abs Error):   {metrics['median_ae']:.4f}")
     print(f"  RMSE (Root Mean Squared Error): {metrics['rmse']:.4f}")
+    print(f"  MAPE (Mean Abs % Error):        {metrics['mape']:.2f}%")
     print(f"  Correlation:                    {metrics['correlation']:.4f}")
     print(f"  R² Score:                       {metrics['r2_score']:.4f}")
-    if metrics['mape'] is not None:
-        print(f"  MAPE (Mean Abs % Error):        {metrics['mape']:.2f}%")
+    print(f"\n📊 Tolerance-based Accuracy:")
+    print(f"  Within ±5%  (±0.05):            {metrics['acc_5pct']:.1f}%")
+    print(f"  Within ±10% (±0.10):            {metrics['acc_10pct']:.1f}%")
+    print(f"  Within ±15% (±0.15):            {metrics['acc_15pct']:.1f}%")
     
     print(f"\n📊 Prediction Statistics:")
     print(f"  Mean:   {analysis['statistics']['predictions']['mean']:.4f}")
