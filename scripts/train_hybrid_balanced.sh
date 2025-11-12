@@ -1,4 +1,5 @@
 #!/bin/bash
+set -eu
 # Train hybrid model with BALANCED regularization
 # 
 # Strategy: Combine multiple regularization techniques
