@@ -1,0 +1,15 @@
+{
+  "limit": null,
+  "vector_size": 1024,
+  "window": 10,
+  "epochs": 50,
+  "batch_size": 64,
+  "learning_rate": 0.0003,
+  "hidden_dim1": 512,
+  "hidden_dim2": 256,
+  "dropout": 0.4,
+  "val_split": 0.1,
+  "output_dir": "experiments/mlp_regressor_improved",
+  "device": "cpu",
+  "seed": 42
+}
