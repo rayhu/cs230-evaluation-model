@@ -232,7 +232,7 @@ custom_results/
 subset/
 # Large datasets
 SciTSR/
-docs/
 
 # IDE and editor artifacts
 .history/
+.direnv
