@@ -1,9 +1,8 @@
 #!/bin/bash
-# Train hybrid model with FIXED hyperparameters
-# Key fixes:
-#   - Proper dropout (0.3 instead of 0.1)
-#   - More epochs (100 with early stopping)
-#   - Better architecture
+# Train hybrid model with CORRECT hyperparameters
+# Key insight: Hybrid features work BEST with NO DROPOUT!
+# The features are already diverse (structure + text + embeddings)
+# Adding dropout destroys information in sparse features
 
 python scripts/train_mlp_regressor.py \
     --model-name "sentence-transformers/all-mpnet-base-v2" \
@@ -12,9 +11,9 @@ python scripts/train_mlp_regressor.py \
     --learning-rate 0.0002 \
     --hidden-dim1 768 \
     --hidden-dim2 384 \
-    --dropout 0.3 \
+    --dropout 0.0 \
     --val-split 0.15 \
-    --output-dir "experiments/mlp_hybrid_fixed" \
+    --output-dir "experiments/mlp_hybrid_best" \
     --device mps \
     --seed 42 \
     --use-hybrid-features \
