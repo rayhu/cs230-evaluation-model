@@ -4,21 +4,41 @@ A deep learning project for evaluating table extraction performances.
 
 ## 🎯 Overview
 
-This project is part of Stanford's CS230 Deep Learning course, focusing on table understanding in scientific documents. We leverage the SciTSR dataset, which contains 15000 annotated table images from scientific papers.
+This project is a class project of Stanford's CS230 Deep Learning course, focusing on table understanding in scientific documents. We leverage the SciTSR dataset, which contains 15000 annotated table images from scientific papers.
 
 ## 📁 Project Structure
 
 ```
 cs230-evaluation-model/
-├── data/                           # Dataset storage (gitignored)
-│   ├── README.md                   # Dataset documentation
-│   └── SciTSR/                     # Downloaded data
-├── docs/                           # Project documentation
-├── experiments/                    # Experiment configs and results
-├── notebooks/                      # Jupyter notebooks for exploration
-│   └── 01_dataset_exploration.ipynb
+├── notebooks/                      # Jupyter notebooks for exploration and training
+│   ├── dataset_exploration.ipynb   # Dataset exploration and analysis
+│   ├── eval_mlp_pytorch.ipynb     # PyTorch MLP model evaluation
+│   ├── eval_sentence_transformers.ipynb  # Sentence transformer experiments
+│   ├── eval_transformers_hf.ipynb # Hugging Face transformer experiments
+│   ├── table_quality_prediction_tensorflow_Base.ipynb  # TensorFlow baseline model
+│   ├── table_quality_prediction_tensorflow_WEIGHTED.ipynb  # TensorFlow weighted loss model
+│   └── experiments/                # Experiment results and checkpoints
 ├── scripts/                        # Utility scripts
-│   └── extract_tables_scitsr.py    # Prepare the input JSON files for evalution model
+│   ├── extract_tables_scitsr.py   # Extract tables from SciTSR images
+│   ├── score_extraction.py        # Evaluate extraction quality scores
+│   ├── score_extraction_improved.py  # Improved scoring implementation
+│   ├── train_mlp_regressor.py     # Train MLP regressor model
+│   ├── evaluate_on_test_set.py   # Evaluate model on test set
+│   ├── predict_quality.py          # Predict quality for new tables
+│   ├── validate_outputs.py        # Validate JSON output format
+│   ├── generate_metadata_jsonl.py # Generate metadata for dataset
+│   ├── convert_to_parquet.py      # Convert dataset to parquet format
+│   ├── hyperparam_search.py       # Hyperparameter search utilities
+│   ├── compare_models.py          # Compare different model architectures
+│   ├── upload_to_huggingface.py   # Upload dataset to Hugging Face
+│   └── train_*.sh                  # Training shell scripts
+├── src/                            # Source code for models and utilities
+│   ├── mlp_regressor.py           # MLP regressor model implementations
+│   ├── structure_converter.py     # Table structure conversion utilities
+│   ├── main.py                    # Main entry point
+│   └── utils/                     # Utility modules
+│       ├── table_features.py     # Feature extraction utilities
+│       └── grid_detection.py     # Grid detection algorithms
 ├── requirements.txt                # Python dependencies
 ├── setup.sh                        # Automated environment setup
 ├── start_jupyter.sh                # Jupyter Lab launcher
@@ -31,7 +51,6 @@ cs230-evaluation-model/
 ### Prerequisites
 
 - Python 3.13 specified in venv
-- 120 GB free disk space
 
 ### Setup
 
