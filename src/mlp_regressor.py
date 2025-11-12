@@ -57,21 +57,20 @@ class MLPRegressor(nn.Module):
     
     def _initialize_weights(self):
         """
-        Randomly initialize all weights with high variance.
-        Ensures initial predictions are random, leading to high initial loss.
+        Initialize weights properly scaled for network depth and width.
+        Uses Kaiming initialization for ReLU networks to prevent saturation.
         """
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                # High-variance random initialization (std=0.8) instead of Kaiming
-                # This ensures truly random initial predictions
-                nn.init.normal_(m.weight, mean=0.0, std=0.8)
+                # Kaiming/He initialization for ReLU networks
+                # Scales by fan_in to prevent saturation with high-dimensional inputs
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
                 if m.bias is not None:
-                    # Wider bias range for more randomness
-                    nn.init.uniform_(m.bias, -0.8, 0.8)
+                    nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm1d):
-                # More random BatchNorm initialization
-                nn.init.uniform_(m.weight, 0.3, 2.0)
-                nn.init.uniform_(m.bias, -0.2, 0.2)
+                # Standard BatchNorm initialization
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -138,21 +137,20 @@ class ImprovedMLPRegressor(nn.Module):
     
     def _initialize_weights(self):
         """
-        Initialize weights with high variance for truly random initial predictions.
-        Ensures initial loss is high (not suspiciously low).
+        Initialize weights properly scaled for network depth and width.
+        Uses Kaiming initialization for ReLU networks to prevent saturation.
         """
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                # High-variance random initialization (std=0.8 for better randomness)
-                # This ensures truly random initial predictions
-                nn.init.normal_(m.weight, mean=0.0, std=0.8)
+                # Kaiming/He initialization for ReLU networks
+                # Scales by fan_in to prevent saturation with high-dimensional inputs
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
                 if m.bias is not None:
-                    # Wider bias range for more randomness
-                    nn.init.uniform_(m.bias, -0.8, 0.8)
+                    nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm1d):
-                # More random BatchNorm initialization
-                nn.init.uniform_(m.weight, 0.3, 2.0)
-                nn.init.uniform_(m.bias, -0.2, 0.2)
+                # Standard BatchNorm initialization
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass with residual connections."""
@@ -265,26 +263,24 @@ class DeepMLPRegressor(nn.Module):
     
     def _initialize_weights(self):
         """
-        Initialize weights with high variance for truly random initial predictions.
-        Ensures initial loss is high (not suspiciously low).
-        Using even higher variance for deeper networks.
+        Initialize weights properly scaled for network depth and width.
+        Uses Kaiming initialization for ReLU networks to prevent saturation.
         """
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                # Very high-variance random initialization (std=1.0 for deeper networks)
-                # This ensures truly random initial predictions and higher initial loss
-                nn.init.normal_(m.weight, mean=0.0, std=1.0)
+                # Kaiming/He initialization for ReLU networks
+                # Scales by fan_in to prevent saturation with high-dimensional inputs
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
                 if m.bias is not None:
-                    # Wider bias range for more randomness
-                    nn.init.uniform_(m.bias, -1.0, 1.0)
+                    nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.BatchNorm1d):
-                # More random BatchNorm initialization
-                nn.init.uniform_(m.weight, 0.3, 2.0)
-                nn.init.uniform_(m.bias, -0.2, 0.2)
+                # Standard BatchNorm initialization
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
             elif isinstance(m, nn.LayerNorm):
-                # More random LayerNorm initialization
-                nn.init.uniform_(m.weight, 0.3, 2.0)
-                nn.init.uniform_(m.bias, -0.2, 0.2)
+                # Standard LayerNorm initialization
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through deep network with residual connections."""
