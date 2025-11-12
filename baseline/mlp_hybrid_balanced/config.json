@@ -1,0 +1,20 @@
+{
+  "limit": null,
+  "model_name": "sentence-transformers/all-mpnet-base-v2",
+  "epochs": 100,
+  "batch_size": 64,
+  "learning_rate": 0.0002,
+  "hidden_dim1": 768,
+  "hidden_dim2": 384,
+  "dropout": 0.2,
+  "weight_decay": 0.001,
+  "val_split": 0.15,
+  "output_dir": "experiments/mlp_hybrid_balanced",
+  "device": "mps",
+  "seed": 42,
+  "use_hybrid_features": true,
+  "use_improved_model": true,
+  "use_deep_model": false,
+  "hidden_dims": null,
+  "use_layer_norm": false
+}
