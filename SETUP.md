@@ -55,11 +55,3 @@ pip install -r requirements.txt
 - `pyarrow` - Accelerated data processing
 - `pandas` - Data manipulation toolkit
 
----
-
-### 4. Run the Download Script
-
-```bash
-python scripts/download_pubtables_raw.py
-
-```
