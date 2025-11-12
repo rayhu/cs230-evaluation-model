@@ -84,6 +84,15 @@ The `baseline/` directory contains trained baseline model and experimental resul
 - **Loss plots** (`loss_vs_epoch.png`): Visualization of training and validation loss
 - **Test evaluations** (where available): Final model performance on test set
 
+To run the training, run: 
+```
+bash scripts/train_hybrid_minimal_overfit.sh
+```
+To run the evaaluation, run: 
+```
+python scripts/evaluate_on_test_set.py --model-dir baseline/mlp_hybrid_balanced/ --output baseline/eval/evaluation.json --plot-dir baseline/eval/plots --device mps
+```
+
 ## Dataset Available on Hugging Face
 
 Our table extraction evaluation dataset is now available on Hugging Face Hub!
