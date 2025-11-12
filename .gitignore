@@ -229,7 +229,7 @@ experiments/
 results/
 !results/.gitkeep
 custom_results/
-
+subset/
 # Large datasets
 SciTSR/
 docs/
