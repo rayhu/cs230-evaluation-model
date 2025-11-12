@@ -191,7 +191,8 @@ def compute_metrics(predictions, ground_truth):
     epsilon = 1e-8
     mape = np.mean(np.abs((gt_scores - pred_scores) / (gt_scores + epsilon))) * 100
     
-    # Tolerance-based accuracy (percentage within ±5% and ±10%)
+    # Tolerance-based accuracy (percentage within ±1%, ±5%, ±10%, ±15%)
+    acc_1pct = (abs_diff <= 0.01).astype(float).mean() * 100
     acc_5pct = (abs_diff <= 0.05).astype(float).mean() * 100
     acc_10pct = (abs_diff <= 0.10).astype(float).mean() * 100
     acc_15pct = (abs_diff <= 0.15).astype(float).mean() * 100
@@ -204,6 +205,7 @@ def compute_metrics(predictions, ground_truth):
         'correlation': float(correlation),
         'r2_score': float(r2),
         'mape': float(mape),
+        'acc_1pct': float(acc_1pct),   # % predictions within ±0.01
         'acc_5pct': float(acc_5pct),   # % predictions within ±0.05
         'acc_10pct': float(acc_10pct), # % predictions within ±0.10
         'acc_15pct': float(acc_15pct), # % predictions within ±0.15
@@ -578,6 +580,7 @@ def main():
     print(f"  Correlation:                    {metrics['correlation']:.4f}")
     print(f"  R² Score:                       {metrics['r2_score']:.4f}")
     print(f"\n📊 Tolerance-based Accuracy:")
+    print(f"  Within ±1%  (±0.01):            {metrics['acc_1pct']:.1f}%")
     print(f"  Within ±5%  (±0.05):            {metrics['acc_5pct']:.1f}%")
     print(f"  Within ±10% (±0.10):            {metrics['acc_10pct']:.1f}%")
     print(f"  Within ±15% (±0.15):            {metrics['acc_15pct']:.1f}%")

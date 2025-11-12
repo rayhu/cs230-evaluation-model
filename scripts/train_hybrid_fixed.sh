@@ -1,13 +1,14 @@
 #!/bin/bash
-# Train hybrid model with FIXED weight initialization
+# Train hybrid model with FIXED initialization + STRONG regularization
 # 
 # Key fixes:
-#   1. Proper Kaiming initialization (prevents sigmoid saturation with high-dim inputs)
-#   2. No dropout (hybrid features are already diverse)
-#   3. ImprovedMLPRegressor with residual connections
+#   1. Proper Kaiming initialization (prevents sigmoid saturation)
+#   2. No dropout (hybrid features are sparse, dropout hurts)
+#   3. STRONG L2 regularization (weight_decay=1e-3) to combat overfitting
+#   4. ImprovedMLPRegressor with residual connections
 #
-# Previous issue: std=0.8 weight init caused saturation with 807-dim inputs
-# Fix: Kaiming init scales by sqrt(2/fan_in) ≈ 0.05 for 807 inputs
+# Overfitting issue: Train loss 0.0004 vs Val loss 0.006 (15x gap!)
+# Solution: Increase weight_decay from 1e-4 to 1e-3 for stronger L2 penalty
 
 python scripts/train_mlp_regressor.py \
     --model-name "sentence-transformers/all-mpnet-base-v2" \
@@ -17,8 +18,9 @@ python scripts/train_mlp_regressor.py \
     --hidden-dim1 768 \
     --hidden-dim2 384 \
     --dropout 0.0 \
+    --weight-decay 1e-3 \
     --val-split 0.15 \
-    --output-dir "experiments/mlp_hybrid_proper_init" \
+    --output-dir "experiments/mlp_hybrid_regularized" \
     --device mps \
     --seed 42 \
     --use-hybrid-features \
