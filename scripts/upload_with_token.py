@@ -32,7 +32,7 @@ print("Logging in to Hugging Face...")
 login(token=token)
 
 # Load dataset
-data_dir = Path(__file__).parent.parent / "dataset_parquet"
+data_dir = Path(__file__).parent.parent / "dataset_parquet_v2"
 print(f"\nLoading dataset from {data_dir}...")
 dataset = load_dataset(str(data_dir))
 
@@ -57,7 +57,7 @@ try:
     dataset.push_to_hub(
         repo_id=repo_id,
         private=False,
-        commit_message="Initial dataset upload: 11,971 train + 3,000 test samples"
+        commit_message="Upload version 2: Augmented dataset with high bucket (0.6-0.8) samples - 29,779 train examples"
     )
     
     print(f"\n✅ Dataset uploaded successfully!")

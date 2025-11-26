@@ -89,6 +89,7 @@ def process_split(
 def convert_to_parquet(
     dataset_dir: Path,
     output_dir: Path,
+    train_metadata_file: Path = None,
 ) -> None:
     """
     Convert dataset to Parquet format.
@@ -96,14 +97,16 @@ def convert_to_parquet(
     Args:
         dataset_dir: Directory containing the dataset
         output_dir: Directory to save Parquet files
+        train_metadata_file: Optional custom path to train metadata file
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Process train split
     train_dir = dataset_dir / "train"
+    train_metadata = train_metadata_file if train_metadata_file else train_dir / "metadata_train.jsonl"
     train_examples = process_split(
-        metadata_file=train_dir / "metadata_train.jsonl",
+        metadata_file=train_metadata,
         generated_dir=train_dir / "generated",
         gt_dir=train_dir / "ground_truth",
         split_name="train",
@@ -204,6 +207,12 @@ def main():
         default=Path(__file__).parent.parent / "dataset_parquet",
         help="Output directory for Parquet files"
     )
+    parser.add_argument(
+        "--train-metadata",
+        type=Path,
+        default=None,
+        help="Custom path to train metadata JSONL file (optional)"
+    )
     
     args = parser.parse_args()
     
@@ -214,7 +223,7 @@ def main():
     
     # Convert to Parquet
     try:
-        convert_to_parquet(args.dataset_dir, args.output_dir)
+        convert_to_parquet(args.dataset_dir, args.output_dir, args.train_metadata)
         return 0
     except Exception as e:
         print(f"Error converting dataset: {e}")

@@ -167,22 +167,81 @@ def create_low_score_variant(gt_cells: List[Dict], generated_cells: List[Dict]) 
     return modified, (0.0, 0.4)  # Target range: low scores
 
 
-def create_high_score_variant(gt_cells: List[Dict], generated_cells: List[Dict]) -> Tuple[List[Dict], float]:
+def create_high_score_variant(
+    gt_cells: List[Dict], 
+    generated_cells: List[Dict],
+    target_range: Optional[Tuple[float, float]] = None
+) -> Tuple[List[Dict], float]:
     """
     Create a variant with higher similarity score by fixing errors.
+    
+    Args:
+        gt_cells: Ground truth cells
+        generated_cells: Generated cells
+        target_range: Optional target score range (min, max)
     
     Returns:
         Modified generated cells and expected score range
     """
-    # Start with ground truth and introduce small variations
-    modified = copy.deepcopy(gt_cells)
-    
-    # Apply minimal modifications (small shifts only)
-    num_mods = random.randint(1, 2)
-    for _ in range(num_mods):
-        modified = modify_cell_positions(modified, 'shift')
-    
-    return modified, (0.6, 1.0)  # Target range: high scores
+    if target_range and target_range[0] < 0.75:
+        # Target 0.6-0.8 range: Start from generated and fix partially
+        modified = copy.deepcopy(generated_cells)
+        
+        # Strategy: Fix some cells by aligning them closer to ground truth
+        # 1. Find cells that are close to GT positions and fix them
+        # 2. Apply small shifts to improve alignment
+        # 3. Merge some incorrectly split cells
+        
+        # Apply moderate fixes (more than very high, less than medium)
+        num_fixes = random.randint(2, 4)
+        
+        for _ in range(num_fixes):
+            fix_type = random.choice(['shift', 'merge'])
+            modified = modify_cell_positions(modified, fix_type)
+        
+        # Additionally, try to align some cells with GT positions
+        if len(modified) > 0 and len(gt_cells) > 0:
+            # Randomly fix a few cells to match GT positions better
+            num_to_fix = min(3, len(modified) // 4, len(gt_cells))
+            if num_to_fix > 0:
+                # Find cells that can be aligned
+                for _ in range(num_to_fix):
+                    if modified and gt_cells:
+                        mod_idx = random.randint(0, len(modified) - 1)
+                        gt_idx = random.randint(0, len(gt_cells) - 1)
+                        # Partially align: move closer but not exactly
+                        mod_cell = modified[mod_idx]
+                        gt_cell = gt_cells[gt_idx]
+                        # Move 50-80% of the way towards GT position
+                        alignment_factor = random.uniform(0.5, 0.8)
+                        mod_cell['start_row'] = int(
+                            mod_cell['start_row'] * (1 - alignment_factor) + 
+                            gt_cell['start_row'] * alignment_factor
+                        )
+                        mod_cell['end_row'] = int(
+                            mod_cell['end_row'] * (1 - alignment_factor) + 
+                            gt_cell['end_row'] * alignment_factor
+                        )
+                        mod_cell['start_col'] = int(
+                            mod_cell['start_col'] * (1 - alignment_factor) + 
+                            gt_cell['start_col'] * alignment_factor
+                        )
+                        mod_cell['end_col'] = int(
+                            mod_cell['end_col'] * (1 - alignment_factor) + 
+                            gt_cell['end_col'] * alignment_factor
+                        )
+        
+        return modified, (0.6, 0.8)  # Target range: high but not very high
+    else:
+        # Target 0.8-1.0 range: Start from ground truth and introduce small variations
+        modified = copy.deepcopy(gt_cells)
+        
+        # Apply minimal modifications (small shifts only)
+        num_mods = random.randint(1, 2)
+        for _ in range(num_mods):
+            modified = modify_cell_positions(modified, 'shift')
+        
+        return modified, (0.8, 1.0)  # Target range: very high scores
 
 
 def create_medium_score_variant(gt_cells: List[Dict], generated_cells: List[Dict]) -> Tuple[List[Dict], float]:
@@ -254,18 +313,28 @@ def augment_sample(
             if target_score_range:
                 if target_score_range[1] < 0.4:
                     variant_type = 'low'
-                elif target_score_range[0] > 0.6:
+                elif target_score_range[0] >= 0.8:
+                    variant_type = 'very_high'
+                elif target_score_range[0] >= 0.6:
                     variant_type = 'high'
                 else:
                     variant_type = 'medium'
             else:
-                variant_type = random.choice(['low', 'medium', 'high'])
+                variant_type = random.choice(['low', 'medium', 'high', 'very_high'])
         
         # Create variant
         if variant_type == 'low':
             modified_cells, expected_range = create_low_score_variant(gt_cells, generated_cells)
+        elif variant_type == 'very_high':
+            # Target 0.8-1.0 range
+            modified_cells, expected_range = create_high_score_variant(
+                gt_cells, generated_cells, target_range=(0.8, 1.0)
+            )
         elif variant_type == 'high':
-            modified_cells, expected_range = create_high_score_variant(gt_cells, generated_cells)
+            # Target 0.6-0.8 range
+            modified_cells, expected_range = create_high_score_variant(
+                gt_cells, generated_cells, target_range=(0.6, 0.8)
+            )
         else:  # medium
             modified_cells, expected_range = create_medium_score_variant(gt_cells, generated_cells)
         
@@ -301,8 +370,10 @@ def augment_sample(
             # Try once more with different modifications
             if variant_type == 'low':
                 modified_cells, _ = create_low_score_variant(gt_cells, generated_cells)
+            elif variant_type == 'very_high':
+                modified_cells, _ = create_high_score_variant(gt_cells, generated_cells, target_range=(0.8, 1.0))
             elif variant_type == 'high':
-                modified_cells, _ = create_high_score_variant(gt_cells, generated_cells)
+                modified_cells, _ = create_high_score_variant(gt_cells, generated_cells, target_range=(0.6, 0.8))
             else:
                 modified_cells, _ = create_medium_score_variant(gt_cells, generated_cells)
             
@@ -488,7 +559,7 @@ def augment_dataset(
         'Very Low': ((0.0, 0.2), 'low'),
         'Low': ((0.2, 0.4), 'low'),
         'High': ((0.6, 0.8), 'high'),
-        'Very High': ((0.8, 1.0), 'high')
+        'Very High': ((0.8, 1.0), 'very_high')
     }
     
     for label, (score_range, variant_type) in ranges.items():

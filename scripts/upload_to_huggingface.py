@@ -23,6 +23,7 @@ def upload_dataset(
     repo_id: str,
     private: bool = False,
     token: str | None = None,
+    commit_message: str = None,
 ) -> None:
     """
     Upload dataset to Hugging Face Hub.
@@ -58,14 +59,16 @@ def upload_dataset(
         login()
     
     # Upload to hub
+    commit_msg = commit_message or "Upload version 2 with augmented high bucket data"
     print(f"\nUploading dataset to {repo_id}...")
     dataset.push_to_hub(
         repo_id=repo_id,
         private=private,
-        commit_message="Initial dataset upload"
+        commit_message=commit_msg
     )
     
     print(f"\n✅ Dataset uploaded successfully to: https://huggingface.co/datasets/{repo_id}")
+    print(f"   You can load it with: load_dataset('{repo_id}', revision='main')")
 
 
 def main():
@@ -95,6 +98,12 @@ def main():
         default=Path(__file__).parent.parent / "dataset_parquet",
         help="Directory containing Parquet files"
     )
+    parser.add_argument(
+        "--commit-message",
+        type=str,
+        default=None,
+        help="Custom commit message for the upload"
+    )
     
     args = parser.parse_args()
     
@@ -117,6 +126,7 @@ def main():
             repo_id=args.repo_id,
             private=args.private,
             token=args.token,
+            commit_message=args.commit_message,
         )
         return 0
     except Exception as e:
