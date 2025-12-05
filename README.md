@@ -96,6 +96,15 @@ python scripts/evaluate_on_test_set.py \
     --plot-dir experiments/mlp_hybrid_minimal_overfit-final/test_plots \
     --device mps
 ```
+
+## Best Model
+
+The `best/` directory contains trained baseline model and experimental result. It contains:
+
+- **Configuration files** (`config.json`): Hyperparameters and training settings
+- **Training history** (`training_history.json`, `training_history.png`): Loss curves and metrics over training epochs
+- **Loss plots** (`loss_vs_epoch.png`): Visualization of training and validation loss
+- **Test evaluations** (where available): Final model performance on test set
 To run the training for best model, run: 
 ```
 ./scripts/train_openai_hybrid_minimal_overfit.sh
