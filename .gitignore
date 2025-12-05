@@ -233,6 +233,7 @@ subset/
 # Large datasets
 SciTSR/
 
+docs-2/
 # IDE and editor artifacts
 .history/
 .direnv

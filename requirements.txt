@@ -65,3 +65,7 @@ sentence-transformers>=2.2.0
 
 # Word2Vec embeddings (legacy support)
 gensim>=4.3.0
+
+# OpenAI embeddings
+openai>=1.0.0
+python-dotenv>=1.0.0

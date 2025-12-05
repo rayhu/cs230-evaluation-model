@@ -20,7 +20,7 @@ python scripts/train_mlp_regressor.py \
     --dropout 0.15 \
     --weight-decay 2e-3 \
     --val-split 0.15 \
-    --output-dir "experiments/mlp_hybrid_minimal_overfit" \
+    --output-dir "experiments/updated_data_mlp_hybrid_minimal_overfit" \
     --device mps \
     --seed 42 \
     --use-hybrid-features \
