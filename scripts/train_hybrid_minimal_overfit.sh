@@ -12,15 +12,15 @@
 
 python scripts/train_mlp_regressor.py \
     --model-name "sentence-transformers/all-mpnet-base-v2" \
-    --epochs 100 \
+    --epochs 200 \
     --batch-size 64 \
     --learning-rate 0.0002 \
-    --hidden-dim1 384 \
-    --hidden-dim2 128 \
+    --hidden-dim1 512 \
+    --hidden-dim2 256 \
     --dropout 0.15 \
     --weight-decay 2e-3 \
     --val-split 0.15 \
-    --output-dir "experiments/mlp_hybrid_minimal_overfit" \
+    --output-dir "experiments/mlp_hybrid_minimal_overfit-final" \
     --device mps \
     --seed 42 \
     --use-hybrid-features \

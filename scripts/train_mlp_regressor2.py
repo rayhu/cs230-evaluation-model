@@ -1024,6 +1024,7 @@ def evaluate(model, dataloader, loss_fn, device):
     acc_1pct = np.mean(np.abs(all_preds - all_targets) < 0.01) * 100
     acc_5pct = np.mean(np.abs(all_preds - all_targets) < 0.05) * 100
     acc_10pct = np.mean(np.abs(all_preds - all_targets) < 0.10) * 100
+    acc_15pct = np.mean(np.abs(all_preds - all_targets) < 0.15) * 100
     
     # Median absolute error
     median_ae = np.median(np.abs(all_preds - all_targets))
@@ -1037,6 +1038,7 @@ def evaluate(model, dataloader, loss_fn, device):
         'acc_1pct': acc_1pct,
         'acc_5pct': acc_5pct,
         'acc_10pct': acc_10pct,
+        'acc_15pct': acc_15pct,
         'median_ae': median_ae
     }
 
@@ -1294,7 +1296,10 @@ def plot_training_history(history, save_path: Path = None):
     val_mse = [m['mse'] for m in history['val_metrics']]
     val_mae = [m['mae'] for m in history['val_metrics']]
     val_r2 = [m['r2'] for m in history['val_metrics']]
+    val_acc_1pct = [m['acc_1pct'] for m in history['val_metrics']]
     val_acc_5pct = [m['acc_5pct'] for m in history['val_metrics']]
+    val_acc_10pct = [m['acc_10pct'] for m in history['val_metrics']]
+    val_acc_15pct = [m['acc_15pct'] for m in history['val_metrics']]
     val_mape = [m['mape'] for m in history['val_metrics']]
     
     # Plot 1: Loss
@@ -1320,11 +1325,16 @@ def plot_training_history(history, save_path: Path = None):
     axes[0, 2].set_title('Validation R²')
     axes[0, 2].grid(True, alpha=0.3)
     
-    # Plot 4: Accuracy @ 5%
-    axes[1, 0].plot(epochs, val_acc_5pct, color='orange')
+    # Plot 4: All Accuracy Metrics
+    axes[1, 0].plot(epochs, val_acc_1pct, color='green', label='±1%', marker='^', markersize=2)
+    axes[1, 0].plot(epochs, val_acc_5pct, color='blue', label='±5%', marker='o', markersize=2)
+    axes[1, 0].plot(epochs, val_acc_10pct, color='cyan', label='±10%', marker='s', markersize=2)
+    axes[1, 0].plot(epochs, val_acc_15pct, color='magenta', label='±15%', marker='D', markersize=2)
     axes[1, 0].set_xlabel('Epoch')
     axes[1, 0].set_ylabel('Accuracy (%)')
-    axes[1, 0].set_title('Validation Accuracy within 5%')
+    axes[1, 0].set_title('Validation Accuracy (±1%, ±5%, ±10%, ±15%)')
+    axes[1, 0].legend(fontsize=8)
+    axes[1, 0].set_ylim([0, 100])
     axes[1, 0].grid(True, alpha=0.3)
     
     # Plot 5: MAPE
