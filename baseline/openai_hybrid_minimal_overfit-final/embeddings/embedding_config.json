@@ -1,0 +1,7 @@
+{
+  "model_name": "openai/text-embedding-3-small",
+  "use_openai_embeddings": true,
+  "use_hybrid_features": true,
+  "embedding_dim": 1536,
+  "total_dim": 1548
+}

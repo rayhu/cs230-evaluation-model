@@ -144,11 +144,11 @@ def extract_structural_features(json_str: str) -> np.ndarray:
 def load_model(model_dir: Path, device: str = 'cpu'):
     """Load the trained model and its configuration."""
     # Import from training script (has correct model architectures)
-    # The src/mlp_regressor.py has different implementations
+    # Use train_mlp_regressor2.py which has all model classes including AttentionMLPRegressor
     import importlib.util
     
-    train_script_path = Path(__file__).parent / 'train_mlp_regressor.py'
-    spec = importlib.util.spec_from_file_location("train_mlp_regressor", train_script_path)
+    train_script_path = Path(__file__).parent / 'train_mlp_regressor2.py'
+    spec = importlib.util.spec_from_file_location("train_mlp_regressor2", train_script_path)
     train_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(train_module)
     
