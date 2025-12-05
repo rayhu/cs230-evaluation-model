@@ -84,13 +84,30 @@ The `baseline/` directory contains trained baseline model and experimental resul
 - **Loss plots** (`loss_vs_epoch.png`): Visualization of training and validation loss
 - **Test evaluations** (where available): Final model performance on test set
 
-To run the training, run: 
+To run the training for baseline, run: 
 ```
 bash scripts/train_hybrid_minimal_overfit.sh
 ```
-To run the evaaluation, run: 
+To run the evaluation on baseline , run: 
 ```
-python scripts/evaluate_on_test_set.py --model-dir baseline/mlp_hybrid_balanced/ --output baseline/eval/evaluation.json --plot-dir baseline/eval/plots --device mps
+python scripts/evaluate_on_test_set.py \
+    --model-dir experiments/mlp_hybrid_minimal_overfit-final \
+    --output experiments/mlp_hybrid_minimal_overfit-final/test_results.json \
+    --plot-dir experiments/mlp_hybrid_minimal_overfit-final/test_plots \
+    --device mps
+```
+To run the training for best model, run: 
+```
+./scripts/train_openai_hybrid_minimal_overfit.sh
+```
+
+To run the evaluation on best model , run: 
+```
+python scripts/evaluate_openai_model.py \
+    --model-dir experiments/openai_hybrid_minimal_overfit-final \
+    --output experiments/openai_hybrid_minimal_overfit-final/test_results.json \
+    --plot-dir experiments/openai_hybrid_minimal_overfit-final/test_plots \
+    --device mps
 ```
 
 ## Dataset Available on Hugging Face
