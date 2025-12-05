@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """
-Analyze and visualize the score distribution in metadata JSONL files.
+Analyze and visualize the score distribution in metadata JSONL files or Parquet datasets.
 """
 
 import argparse
 import json
 from pathlib import Path
 from collections import defaultdict
+from typing import Optional
 
 try:
     import numpy as np
+    HAS_NUMPY = True
 except ImportError:
     # Fallback if numpy not available
-    class np:
+    HAS_NUMPY = False
+    class _NumpyFallback:  # type: ignore
         @staticmethod
         def std(x):
             mean = sum(x) / len(x)
@@ -24,6 +27,7 @@ except ImportError:
             if n % 2 == 0:
                 return (sorted_x[n//2 - 1] + sorted_x[n//2]) / 2
             return sorted_x[n//2]
+    np = _NumpyFallback()  # type: ignore
 
 try:
     import matplotlib.pyplot as plt
@@ -31,15 +35,39 @@ try:
 except ImportError:
     HAS_MATPLOTLIB = False
 
+try:
+    from datasets import load_dataset
+    HAS_DATASETS = True
+except ImportError:
+    HAS_DATASETS = False
 
-def analyze_distribution(metadata_file: Path) -> dict:
-    """Analyze score distribution."""
+
+def analyze_distribution_from_jsonl(metadata_file: Path) -> dict:
+    """Analyze score distribution from JSONL file."""
     scores = []
     with open(metadata_file, 'r', encoding='utf-8') as f:
         for line in f:
             data = json.loads(line)
             scores.append(data['similarity_score'])
     
+    return _compute_statistics(scores)
+
+
+def analyze_distribution_from_parquet(parquet_dir: Path, split: str = 'train') -> dict:
+    """Analyze score distribution from Parquet dataset."""
+    if not HAS_DATASETS:
+        raise ImportError("datasets library is required for Parquet support. Install with: pip install datasets")
+    
+    print(f"Loading dataset from: {parquet_dir}")
+    dataset = load_dataset(str(parquet_dir), split=split)
+    print(f"Loaded {len(dataset)} samples")
+    
+    scores = [sample['similarity_score'] for sample in dataset]
+    return _compute_statistics(scores)
+
+
+def _compute_statistics(scores: list) -> dict:
+    """Compute distribution statistics from a list of scores."""
     if not scores:
         return {}
     
@@ -72,7 +100,7 @@ def analyze_distribution(metadata_file: Path) -> dict:
     }
 
 
-def plot_distribution(analysis: dict, output_file: Path = None):
+def plot_distribution(analysis: dict, output_file: Optional[Path] = None):
     """Plot score distribution histogram."""
     if not HAS_MATPLOTLIB:
         print("Warning: matplotlib not available, skipping plot generation")
@@ -122,13 +150,35 @@ def plot_distribution(analysis: dict, output_file: Path = None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Analyze score distribution in metadata JSONL file"
+        description="Analyze score distribution in metadata JSONL file or Parquet dataset",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Analyze JSONL file:
+  python scripts/analyze_score_distribution.py --metadata dataset/train/metadata_train.jsonl --plot results/distribution.png
+  
+  # Analyze Parquet dataset:
+  python scripts/analyze_score_distribution.py --parquet dataset_parquet_v3 --split train --plot results/distribution_v3.png
+  
+  # Analyze from Hugging Face:
+  python scripts/analyze_score_distribution.py --parquet rayhu/table-extraction-evaluation --split train
+        """
     )
     parser.add_argument(
         '--metadata',
         type=Path,
-        required=True,
-        help='Metadata JSONL file to analyze'
+        help='Metadata JSONL file to analyze (mutually exclusive with --parquet)'
+    )
+    parser.add_argument(
+        '--parquet',
+        type=str,
+        help='Parquet dataset directory or Hugging Face dataset ID (mutually exclusive with --metadata)'
+    )
+    parser.add_argument(
+        '--split',
+        type=str,
+        default='train',
+        help='Dataset split to analyze (default: train)'
     )
     parser.add_argument(
         '--plot',
@@ -138,12 +188,31 @@ def main():
     
     args = parser.parse_args()
     
-    if not args.metadata.exists():
-        print(f"Error: Metadata file does not exist: {args.metadata}")
+    # Validate arguments
+    if not args.metadata and not args.parquet:
+        print("Error: Either --metadata or --parquet must be provided")
+        return 1
+    
+    if args.metadata and args.parquet:
+        print("Error: --metadata and --parquet are mutually exclusive")
         return 1
     
     print("Analyzing score distribution...")
-    analysis = analyze_distribution(args.metadata)
+    
+    # Analyze based on input type
+    if args.metadata:
+        if not args.metadata.exists():
+            print(f"Error: Metadata file does not exist: {args.metadata}")
+            return 1
+        analysis = analyze_distribution_from_jsonl(args.metadata)
+    else:
+        # Parquet dataset
+        parquet_path = Path(args.parquet) if Path(args.parquet).exists() else args.parquet
+        try:
+            analysis = analyze_distribution_from_parquet(parquet_path, args.split)
+        except Exception as e:
+            print(f"Error loading dataset: {e}")
+            return 1
     
     if not analysis:
         print("Error: Could not analyze distribution")

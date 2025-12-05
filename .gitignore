@@ -235,3 +235,9 @@ SciTSR/
 # IDE and editor artifacts
 .history/
 .direnv
+dataset_parquet_v2/
+dataset_parquet_v3/
+
+dataset_parquet.zip
+.gitignore
+dataset.zip
