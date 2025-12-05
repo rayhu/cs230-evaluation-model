@@ -54,7 +54,7 @@ if [ -z "$OPENAI_API_KEY" ]; then
 fi
 
 # Run training
-python scripts/train_mlp_regressor.py \
+python scripts/train_mlp_regressor2.py \
     --use-openai-embeddings \
     --openai-model "${OPENAI_MODEL}" \
     --output-dir "${OUTPUT_DIR}" \
