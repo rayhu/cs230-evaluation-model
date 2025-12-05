@@ -23,15 +23,22 @@ from sentence_transformers import SentenceTransformer
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 
-def load_test_ground_truth():
+def load_test_ground_truth(data_source=None):
     """
-    Load test set ground truth from Hugging Face dataset.
+    Load test set ground truth from Hugging Face dataset or local parquet files.
+    
+    Args:
+        data_source: Path to local parquet directory or None for Hugging Face
     
     Returns:
         Dictionary mapping sample IDs to ground truth scores
     """
-    print("Loading test dataset from Hugging Face...")
-    dataset = load_dataset("rayhu/table-extraction-evaluation", split='test')
+    if data_source:
+        print(f"Loading test dataset from local parquet: {data_source}")
+        dataset = load_dataset(str(data_source), split='test')
+    else:
+        print("Loading test dataset from Hugging Face...")
+        dataset = load_dataset("rayhu/table-extraction-evaluation", split='test')
     
     ground_truth = {}
     for sample in tqdm(dataset, desc="Extracting ground truth"):
@@ -43,7 +50,7 @@ def load_test_ground_truth():
     return ground_truth
 
 
-def predict_all_test_samples(model, feature_extractor, scaler, device='cpu', model_type='sentence_transformer', use_hybrid=False):
+def predict_all_test_samples(model, feature_extractor, scaler, device='cpu', model_type='sentence_transformer', use_hybrid=False, data_source=None):
     """
     Predict quality scores for all test samples.
     
@@ -54,12 +61,16 @@ def predict_all_test_samples(model, feature_extractor, scaler, device='cpu', mod
         device: Device to run inference on
         model_type: Type of feature extractor ('sentence_transformer', 'word2vec', or 'tfidf')
         use_hybrid: Whether to use hybrid features (structure + text + embeddings)
+        data_source: Path to local parquet directory or None for Hugging Face
     
     Returns:
         Dictionary mapping sample IDs to predicted scores
     """
     print("Loading test dataset for prediction...")
-    dataset = load_dataset("rayhu/table-extraction-evaluation", split='test')
+    if data_source:
+        dataset = load_dataset(str(data_source), split='test')
+    else:
+        dataset = load_dataset("rayhu/table-extraction-evaluation", split='test')
     
     # Convert to texts
     texts = [json.dumps(sample['generated']) for sample in dataset]
@@ -386,6 +397,12 @@ def main():
         choices=['cpu', 'cuda', 'mps'],
         help='Device for inference'
     )
+    parser.add_argument(
+        '--data-source',
+        type=str,
+        default=None,
+        help='Path to local parquet directory or None for Hugging Face (default: None)'
+    )
     
     args = parser.parse_args()
     
@@ -530,13 +547,13 @@ def main():
     print("\n" + "="*70)
     print("LOADING GROUND TRUTH")
     print("="*70)
-    ground_truth = load_test_ground_truth()
+    ground_truth = load_test_ground_truth(data_source=args.data_source)
     
     # Generate predictions
     print("\n" + "="*70)
     print("GENERATING PREDICTIONS")
     print("="*70)
-    predictions = predict_all_test_samples(model, feature_extractor, scaler, args.device, model_type, use_hybrid_features)
+    predictions = predict_all_test_samples(model, feature_extractor, scaler, args.device, model_type, use_hybrid_features, data_source=args.data_source)
     
     # Compute metrics
     print("\n" + "="*70)

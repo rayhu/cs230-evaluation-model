@@ -30,13 +30,14 @@ from mlp_regressor import MLPRegressor, ImprovedMLPRegressor, DeepMLPRegressor, 
 from utils.table_features import extract_all_features
 
 
-def load_data(split: str = 'train', limit: int = None):
+def load_data(split: str = 'train', limit: int = None, data_source: str = None):
     """
-    Load dataset from Hugging Face.
+    Load dataset from Hugging Face or local parquet files.
     
     Args:
         split: Dataset split to load ('train' or 'test')
         limit: Maximum number of samples to load (for testing)
+        data_source: Path to local parquet directory or None for Hugging Face
     
     Returns:
         texts: List of JSON strings representing generated tables
@@ -44,7 +45,13 @@ def load_data(split: str = 'train', limit: int = None):
         ids: List of sample IDs
     """
     print(f"Loading dataset split: {split}")
-    dataset = load_dataset("rayhu/table-extraction-evaluation", split=split)
+    if data_source:
+        # Load from local parquet files
+        print(f"Loading from local parquet directory: {data_source}")
+        dataset = load_dataset(str(data_source), split=split)
+    else:
+        # Load from Hugging Face
+        dataset = load_dataset("rayhu/table-extraction-evaluation", split=split)
     print(f"Dataset length: {len(dataset)}")
     if limit:
         dataset = dataset.select(range(min(limit, len(dataset))))
@@ -654,6 +661,12 @@ def main():
         action='store_true',
         help='Use LayerNorm in addition to BatchNorm (for DeepMLPRegressor)'
     )
+    parser.add_argument(
+        '--data-source',
+        type=str,
+        default=None,
+        help='Path to local parquet directory or None for Hugging Face (default: None)'
+    )
     
     args = parser.parse_args()
     
@@ -683,7 +696,7 @@ def main():
         args.device = 'cpu'
     
     # Load data
-    texts, labels, ids = load_data(split='train', limit=args.limit)
+    texts, labels, ids = load_data(split='train', limit=args.limit, data_source=args.data_source)
     
     # Train/val split
     print(f"\nSplitting data (val_split={args.val_split})...")

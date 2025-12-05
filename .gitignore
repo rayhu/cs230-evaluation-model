@@ -226,7 +226,6 @@ dataset_parquet/
 # Experiment outputs and results
 experiments/
 !experiments/.gitkeep
-results/
 !results/.gitkeep
 custom_results/
 subset/
