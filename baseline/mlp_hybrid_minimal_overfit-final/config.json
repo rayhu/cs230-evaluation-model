@@ -1,0 +1,21 @@
+{
+  "limit": null,
+  "model_name": "sentence-transformers/all-mpnet-base-v2",
+  "epochs": 200,
+  "batch_size": 64,
+  "learning_rate": 0.0002,
+  "hidden_dim1": 512,
+  "hidden_dim2": 256,
+  "dropout": 0.15,
+  "weight_decay": 0.002,
+  "val_split": 0.15,
+  "output_dir": "experiments/mlp_hybrid_minimal_overfit-final",
+  "device": "mps",
+  "seed": 42,
+  "use_hybrid_features": true,
+  "use_improved_model": true,
+  "use_deep_model": false,
+  "hidden_dims": null,
+  "use_layer_norm": false,
+  "data_source": null
+}

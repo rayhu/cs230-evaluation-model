@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """
-Data augmentation script for table extraction evaluation dataset.
+Augment and balance the table extraction evaluation dataset.
 
-This script addresses the class imbalance problem where most similarity scores
-are concentrated in the 0.4-0.6 range by:
-1. Oversampling underrepresented score ranges
-2. Creating structural variations of existing tables
-3. Generating synthetic table pairs with controlled similarity scores
+This script creates a balanced dataset by:
+1. Using existing samples from the Hugging Face dataset
+2. Generating synthetic samples from SciTSR ground truth tables
+3. Applying controlled perturbations to achieve target quality score ranges
+
+The goal is to balance the distribution across all quality score ranges:
+- 0.0-0.2: Very poor extraction (major structural errors)
+- 0.2-0.4: Poor extraction (significant errors)
+- 0.4-0.6: Moderate extraction (some errors)
+- 0.6-0.8: Good extraction (minor errors)
+- 0.8-1.0: Excellent extraction (nearly perfect)
 """
 
 import argparse
@@ -14,694 +20,742 @@ import json
 import random
 import copy
 from pathlib import Path
-from typing import Dict, List, Tuple, Any, Optional
-from collections import defaultdict
-import sys
+from typing import Dict, List, Tuple, Any, Set
+from dataclasses import dataclass
+import numpy as np
 from tqdm import tqdm
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Import scoring functions
-import importlib.util
-spec = importlib.util.spec_from_file_location(
-    "score_extraction", 
-    Path(__file__).parent.parent / "scripts" / "score_extraction.py"
-)
-score_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(score_module)
-load_cells_from_json = score_module.load_cells_from_json
-evaluate_extraction = score_module.evaluate_extraction
-Cell = score_module.Cell
-
-
-def analyze_score_distribution(metadata_file: Path) -> Dict[str, Any]:
-    """Analyze the current score distribution."""
-    scores = []
-    with open(metadata_file, 'r', encoding='utf-8') as f:
-        for line in f:
-            data = json.loads(line)
-            scores.append(data['similarity_score'])
+@dataclass
+class Cell:
+    """Represents a table cell with grid position and content."""
+    id: int
+    start_row: int
+    end_row: int
+    start_col: int
+    end_col: int
+    content: List[str]
+    tex: str = ""
     
-    if not scores:
-        return {}
+    def grid_tuple(self) -> Tuple[int, int, int, int]:
+        return (self.start_row, self.end_row, self.start_col, self.end_col)
     
-    buckets = [
-        (0.0, 0.2, "Very Low"),
-        (0.2, 0.4, "Low"),
-        (0.4, 0.6, "Medium"),
-        (0.6, 0.8, "High"),
-        (0.8, 1.0, "Very High")
-    ]
-    
-    distribution = {}
-    for min_val, max_val, label in buckets:
-        count = sum(1 for s in scores if min_val <= s < max_val)
-        distribution[label] = {
-            'count': count,
-            'percentage': count / len(scores) * 100,
-            'range': (min_val, max_val)
-        }
-    
-    return {
-        'total': len(scores),
-        'mean': sum(scores) / len(scores),
-        'min': min(scores),
-        'max': max(scores),
-        'distribution': distribution,
-        'all_scores': scores
-    }
-
-
-def modify_cell_positions(cells: List[Dict], modification_type: str = 'shift') -> List[Dict]:
-    """
-    Modify cell positions to create structural variations.
-    
-    Args:
-        cells: List of cell dictionaries
-        modification_type: 'shift', 'merge', 'split', or 'remove'
-    
-    Returns:
-        Modified list of cells
-    """
-    cells = copy.deepcopy(cells)
-    
-    if not cells:
+    def grid_cells(self) -> Set[Tuple[int, int]]:
+        cells = set()
+        for row in range(self.start_row, self.end_row + 1):
+            for col in range(self.start_col, self.end_col + 1):
+                cells.add((row, col))
         return cells
     
-    if modification_type == 'shift':
-        # Randomly shift some cells' positions
-        num_to_shift = max(1, len(cells) // 10)  # Shift ~10% of cells
-        cells_to_shift = random.sample(cells, min(num_to_shift, len(cells)))
-        
-        for cell in cells_to_shift:
-            # Small random shift (0-2 positions)
-            row_shift = random.randint(-1, 1)
-            col_shift = random.randint(-1, 1)
-            cell['start_row'] = max(0, cell['start_row'] + row_shift)
-            cell['end_row'] = max(cell['start_row'], cell['end_row'] + row_shift)
-            cell['start_col'] = max(0, cell['start_col'] + col_shift)
-            cell['end_col'] = max(cell['start_col'], cell['end_col'] + col_shift)
+    def text(self) -> str:
+        return ' '.join(self.content)
     
-    elif modification_type == 'merge':
-        # Merge adjacent cells
-        if len(cells) < 2:
-            return cells
-        
-        # Find cells that can be merged (same row or same col, adjacent)
-        candidates = []
-        for i, cell1 in enumerate(cells):
-            for j, cell2 in enumerate(cells[i+1:], i+1):
-                # Same row, adjacent columns
-                if (cell1['start_row'] == cell2['start_row'] == cell1['end_row'] == cell2['end_row'] and
-                    abs(cell1['end_col'] - cell2['start_col']) <= 1):
-                    candidates.append((i, j))
-                # Same column, adjacent rows
-                elif (cell1['start_col'] == cell2['start_col'] == cell1['end_col'] == cell2['end_col'] and
-                      abs(cell1['end_row'] - cell2['start_row']) <= 1):
-                    candidates.append((i, j))
-        
-        if candidates:
-            i, j = random.choice(candidates)
-            cell1, cell2 = cells[i], cells[j]
-            # Merge: combine content and extend boundaries
-            merged_cell = {
-                'id': cell1['id'],
-                'tex': cell1.get('tex', ''),
-                'content': cell1.get('content', []) + cell2.get('content', []),
-                'start_row': min(cell1['start_row'], cell2['start_row']),
-                'end_row': max(cell1['end_row'], cell2['end_row']),
-                'start_col': min(cell1['start_col'], cell2['start_col']),
-                'end_col': max(cell1['end_col'], cell2['end_col'])
-            }
-            cells[i] = merged_cell
-            cells.pop(j)
+    def to_dict(self) -> Dict:
+        return {
+            "id": self.id,
+            "start_row": self.start_row,
+            "end_row": self.end_row,
+            "start_col": self.start_col,
+            "end_col": self.end_col,
+            "content": self.content,
+            "tex": self.tex
+        }
+
+
+def load_cells_from_dict(data: Dict) -> List[Cell]:
+    """Load cells from dictionary format."""
+    cells = []
+    for cell_data in data.get('cells', []):
+        cell = Cell(
+            id=cell_data.get('id', 0),
+            start_row=cell_data.get('start_row', 0),
+            end_row=cell_data.get('end_row', 0),
+            start_col=cell_data.get('start_col', 0),
+            end_col=cell_data.get('end_col', 0),
+            content=cell_data.get('content', []),
+            tex=cell_data.get('tex', "")
+        )
+        cells.append(cell)
+    return cells
+
+
+def cells_to_dict(cells: List[Cell]) -> Dict:
+    """Convert cells list to dictionary format."""
+    return {"cells": [cell.to_dict() for cell in cells]}
+
+
+def calculate_grid_iou(cell1: Cell, cell2: Cell) -> float:
+    """Calculate IoU of grid positions."""
+    grid1 = cell1.grid_cells()
+    grid2 = cell2.grid_cells()
     
-    elif modification_type == 'remove':
-        # Remove some cells (but keep at least 50%)
-        num_to_remove = random.randint(1, max(1, len(cells) // 2))
-        if num_to_remove < len(cells):
-            cells_to_remove = random.sample(range(len(cells)), num_to_remove)
-            cells = [c for i, c in enumerate(cells) if i not in cells_to_remove]
+    if not grid1 or not grid2:
+        return 0.0
+    
+    intersection = len(grid1 & grid2)
+    union = len(grid1 | grid2)
+    
+    return intersection / union if union > 0 else 0.0
+
+
+def match_cells(
+    pred_cells: List[Cell],
+    gt_cells: List[Cell],
+    iou_threshold: float = 0.5
+) -> Tuple[List[Tuple[int, int]], List[int], List[int]]:
+    """Match predicted cells with ground truth cells based on IoU."""
+    matches = []
+    matched_pred = set()
+    matched_gt = set()
+    
+    iou_matrix = []
+    for i, pred_cell in enumerate(pred_cells):
+        for j, gt_cell in enumerate(gt_cells):
+            iou = calculate_grid_iou(pred_cell, gt_cell)
+            iou_matrix.append((iou, i, j))
+    
+    iou_matrix.sort(reverse=True, key=lambda x: x[0])
+    
+    for iou, pred_idx, gt_idx in iou_matrix:
+        if iou < iou_threshold:
+            break
+        if pred_idx not in matched_pred and gt_idx not in matched_gt:
+            matches.append((pred_idx, gt_idx))
+            matched_pred.add(pred_idx)
+            matched_gt.add(gt_idx)
+    
+    unmatched_pred = [i for i in range(len(pred_cells)) if i not in matched_pred]
+    unmatched_gt = [i for i in range(len(gt_cells)) if i not in matched_gt]
+    
+    return matches, unmatched_pred, unmatched_gt
+
+
+def calculate_similarity_score(pred_cells: List[Cell], gt_cells: List[Cell], iou_threshold: float = 0.5) -> float:
+    """
+    Calculate similarity score between predicted and ground truth cells.
+    Uses the same formula as the original scoring script.
+    """
+    if not gt_cells:
+        return 1.0 if not pred_cells else 0.0
+    
+    if not pred_cells:
+        return 0.0
+    
+    matches, unmatched_pred, unmatched_gt = match_cells(pred_cells, gt_cells, iou_threshold)
+    
+    tp = len(matches)
+    fp = len(unmatched_pred)
+    fn = len(unmatched_gt)
+    
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+    
+    pred_rows = max([c.end_row for c in pred_cells], default=0) + 1
+    pred_cols = max([c.end_col for c in pred_cells], default=0) + 1
+    gt_rows = max([c.end_row for c in gt_cells], default=0) + 1
+    gt_cols = max([c.end_col for c in gt_cells], default=0) + 1
+    
+    row_accuracy = 1.0 - abs(pred_rows - gt_rows) / max(pred_rows, gt_rows, 1)
+    col_accuracy = 1.0 - abs(pred_cols - gt_cols) / max(pred_cols, gt_cols, 1)
+    
+    overall_score = 0.50 * f1 + 0.25 * row_accuracy + 0.25 * col_accuracy
+    
+    return overall_score
+
+
+def perturb_table_severe(gt_cells: List[Cell], intensity: float = 0.9) -> List[Cell]:
+    """
+    Apply severe perturbations for very low quality scores (0.0-0.2).
+    - Delete most cells
+    - Major grid shifts
+    - Completely wrong structure
+    """
+    if not gt_cells:
+        return []
+    
+    cells = copy.deepcopy(gt_cells)
+    
+    # Delete 70-90% of cells
+    delete_ratio = 0.7 + random.random() * 0.2 * intensity
+    num_to_keep = max(1, int(len(cells) * (1 - delete_ratio)))
+    cells = random.sample(cells, num_to_keep)
+    
+    # Major grid shifts
+    max_shift = 5
+    for cell in cells:
+        if random.random() < 0.8:
+            shift = random.randint(-max_shift, max_shift)
+            cell.start_row = max(0, cell.start_row + shift)
+            cell.end_row = max(cell.start_row, cell.end_row + shift)
+        if random.random() < 0.8:
+            shift = random.randint(-max_shift, max_shift)
+            cell.start_col = max(0, cell.start_col + shift)
+            cell.end_col = max(cell.start_col, cell.end_col + shift)
+    
+    # Add random garbage cells
+    if random.random() < 0.5:
+        for i in range(random.randint(3, 8)):
+            garbage_cell = Cell(
+                id=1000 + i,
+                start_row=random.randint(0, 20),
+                end_row=random.randint(0, 20),
+                start_col=random.randint(0, 20),
+                end_col=random.randint(0, 20),
+                content=["garbage", str(random.randint(0, 100))],
+                tex=""
+            )
+            # Ensure end >= start
+            garbage_cell.end_row = max(garbage_cell.start_row, garbage_cell.end_row)
+            garbage_cell.end_col = max(garbage_cell.start_col, garbage_cell.end_col)
+            cells.append(garbage_cell)
     
     return cells
 
 
-def create_low_score_variant(gt_cells: List[Dict], generated_cells: List[Dict]) -> Tuple[List[Dict], float]:
+def perturb_table_heavy(gt_cells: List[Cell], intensity: float = 0.7) -> List[Cell]:
     """
-    Create a variant with lower similarity score by introducing more errors.
-    
-    Returns:
-        Modified generated cells and expected score range
+    Apply heavy perturbations for poor quality scores (0.2-0.4).
+    - Delete 40-60% of cells
+    - Moderate grid shifts
+    - Some wrong cells added
     """
-    modified = copy.deepcopy(generated_cells)
+    if not gt_cells:
+        return []
     
-    # Apply multiple modifications to reduce similarity
-    modifications = ['shift', 'remove', 'merge']
-    num_mods = random.randint(2, 4)
+    cells = copy.deepcopy(gt_cells)
     
-    for _ in range(num_mods):
-        mod_type = random.choice(modifications)
-        modified = modify_cell_positions(modified, mod_type)
+    # Delete 40-60% of cells
+    delete_ratio = 0.4 + random.random() * 0.2 * intensity
+    num_to_keep = max(1, int(len(cells) * (1 - delete_ratio)))
+    cells = random.sample(cells, num_to_keep)
     
-    return modified, (0.0, 0.4)  # Target range: low scores
+    # Moderate grid shifts
+    max_shift = 3
+    for cell in cells:
+        if random.random() < 0.5:
+            shift = random.randint(-max_shift, max_shift)
+            cell.start_row = max(0, cell.start_row + shift)
+            cell.end_row = max(cell.start_row, cell.end_row + shift)
+        if random.random() < 0.5:
+            shift = random.randint(-max_shift, max_shift)
+            cell.start_col = max(0, cell.start_col + shift)
+            cell.end_col = max(cell.start_col, cell.end_col + shift)
+    
+    # Sometimes merge adjacent cells incorrectly
+    if len(cells) > 2 and random.random() < 0.4:
+        idx = random.randint(0, len(cells) - 2)
+        cells[idx].end_row = max(cells[idx].end_row, cells[idx + 1].end_row)
+        cells[idx].end_col = max(cells[idx].end_col, cells[idx + 1].end_col)
+        cells.pop(idx + 1)
+    
+    # Add some random cells
+    if random.random() < 0.3:
+        for i in range(random.randint(1, 3)):
+            gt_rows = max([c.end_row for c in gt_cells], default=5)
+            gt_cols = max([c.end_col for c in gt_cells], default=5)
+            random_cell = Cell(
+                id=500 + i,
+                start_row=random.randint(0, gt_rows + 2),
+                end_row=random.randint(0, gt_rows + 2),
+                start_col=random.randint(0, gt_cols + 2),
+                end_col=random.randint(0, gt_cols + 2),
+                content=["extra"],
+                tex=""
+            )
+            random_cell.end_row = max(random_cell.start_row, random_cell.end_row)
+            random_cell.end_col = max(random_cell.start_col, random_cell.end_col)
+            cells.append(random_cell)
+    
+    return cells
 
 
-def create_high_score_variant(
-    gt_cells: List[Dict], 
-    generated_cells: List[Dict],
-    target_range: Optional[Tuple[float, float]] = None
-) -> Tuple[List[Dict], float]:
+def perturb_table_moderate(gt_cells: List[Cell], intensity: float = 0.5) -> List[Cell]:
     """
-    Create a variant with higher similarity score by fixing errors.
+    Apply moderate perturbations for medium quality scores (0.4-0.6).
+    - Delete 20-35% of cells
+    - Minor grid shifts
+    - Occasional wrong merges
+    """
+    if not gt_cells:
+        return []
     
-    Args:
-        gt_cells: Ground truth cells
-        generated_cells: Generated cells
-        target_range: Optional target score range (min, max)
+    cells = copy.deepcopy(gt_cells)
+    
+    # Delete 20-35% of cells
+    delete_ratio = 0.2 + random.random() * 0.15 * intensity
+    num_to_keep = max(1, int(len(cells) * (1 - delete_ratio)))
+    cells = random.sample(cells, num_to_keep)
+    
+    # Minor grid shifts
+    for cell in cells:
+        if random.random() < 0.3:
+            shift = random.choice([-2, -1, 1, 2])
+            cell.start_row = max(0, cell.start_row + shift)
+            cell.end_row = max(cell.start_row, cell.end_row + shift)
+        if random.random() < 0.3:
+            shift = random.choice([-2, -1, 1, 2])
+            cell.start_col = max(0, cell.start_col + shift)
+            cell.end_col = max(cell.start_col, cell.end_col + shift)
+    
+    return cells
+
+
+def perturb_table_light(gt_cells: List[Cell], intensity: float = 0.3) -> List[Cell]:
+    """
+    Apply light perturbations for good quality scores (0.6-0.8).
+    - Delete 5-15% of cells
+    - Very minor grid shifts
+    """
+    if not gt_cells:
+        return []
+    
+    cells = copy.deepcopy(gt_cells)
+    
+    # Delete 5-15% of cells
+    delete_ratio = 0.05 + random.random() * 0.10 * intensity
+    num_to_keep = max(1, int(len(cells) * (1 - delete_ratio)))
+    cells = random.sample(cells, num_to_keep)
+    
+    # Very minor grid shifts
+    for cell in cells:
+        if random.random() < 0.15:
+            shift = random.choice([-1, 1])
+            cell.start_row = max(0, cell.start_row + shift)
+            cell.end_row = max(cell.start_row, cell.end_row + shift)
+        if random.random() < 0.15:
+            shift = random.choice([-1, 1])
+            cell.start_col = max(0, cell.start_col + shift)
+            cell.end_col = max(cell.start_col, cell.end_col + shift)
+    
+    return cells
+
+
+def perturb_table_minimal(gt_cells: List[Cell], intensity: float = 0.1) -> List[Cell]:
+    """
+    Apply minimal perturbations for excellent quality scores (0.8-1.0).
+    - Delete 0-5% of cells
+    - Rare minor shifts
+    """
+    if not gt_cells:
+        return []
+    
+    cells = copy.deepcopy(gt_cells)
+    
+    # Delete 0-5% of cells
+    delete_ratio = random.random() * 0.05 * intensity
+    if delete_ratio > 0 and len(cells) > 1:
+        num_to_keep = max(1, int(len(cells) * (1 - delete_ratio)))
+        cells = random.sample(cells, num_to_keep)
+    
+    # Very rare grid shifts
+    for cell in cells:
+        if random.random() < 0.05:
+            shift = random.choice([-1, 1])
+            cell.start_row = max(0, cell.start_row + shift)
+            cell.end_row = max(cell.start_row, cell.end_row + shift)
+    
+    return cells
+
+
+def generate_sample_with_target_score(
+    gt_dict: Dict,
+    target_range: Tuple[float, float],
+    max_attempts: int = 50
+) -> Tuple[Dict, float]:
+    """
+    Generate a perturbed sample targeting a specific score range.
     
     Returns:
-        Modified generated cells and expected score range
+        Tuple of (generated_dict, actual_score)
     """
-    if target_range and target_range[0] < 0.75:
-        # Target 0.6-0.8 range: Start from generated and fix partially
-        modified = copy.deepcopy(generated_cells)
-        
-        # Strategy: Fix some cells by aligning them closer to ground truth
-        # 1. Find cells that are close to GT positions and fix them
-        # 2. Apply small shifts to improve alignment
-        # 3. Merge some incorrectly split cells
-        
-        # Apply moderate fixes (more than very high, less than medium)
-        num_fixes = random.randint(2, 4)
-        
-        for _ in range(num_fixes):
-            fix_type = random.choice(['shift', 'merge'])
-            modified = modify_cell_positions(modified, fix_type)
-        
-        # Additionally, try to align some cells with GT positions
-        if len(modified) > 0 and len(gt_cells) > 0:
-            # Randomly fix a few cells to match GT positions better
-            num_to_fix = min(3, len(modified) // 4, len(gt_cells))
-            if num_to_fix > 0:
-                # Find cells that can be aligned
-                for _ in range(num_to_fix):
-                    if modified and gt_cells:
-                        mod_idx = random.randint(0, len(modified) - 1)
-                        gt_idx = random.randint(0, len(gt_cells) - 1)
-                        # Partially align: move closer but not exactly
-                        mod_cell = modified[mod_idx]
-                        gt_cell = gt_cells[gt_idx]
-                        # Move 50-80% of the way towards GT position
-                        alignment_factor = random.uniform(0.5, 0.8)
-                        mod_cell['start_row'] = int(
-                            mod_cell['start_row'] * (1 - alignment_factor) + 
-                            gt_cell['start_row'] * alignment_factor
-                        )
-                        mod_cell['end_row'] = int(
-                            mod_cell['end_row'] * (1 - alignment_factor) + 
-                            gt_cell['end_row'] * alignment_factor
-                        )
-                        mod_cell['start_col'] = int(
-                            mod_cell['start_col'] * (1 - alignment_factor) + 
-                            gt_cell['start_col'] * alignment_factor
-                        )
-                        mod_cell['end_col'] = int(
-                            mod_cell['end_col'] * (1 - alignment_factor) + 
-                            gt_cell['end_col'] * alignment_factor
-                        )
-        
-        return modified, (0.6, 0.8)  # Target range: high but not very high
+    gt_cells = load_cells_from_dict(gt_dict)
+    
+    if not gt_cells:
+        return None, 0.0
+    
+    target_low, target_high = target_range
+    target_mid = (target_low + target_high) / 2
+    
+    # Select perturbation function based on target range
+    if target_high <= 0.2:
+        perturb_func = perturb_table_severe
+    elif target_high <= 0.4:
+        perturb_func = perturb_table_heavy
+    elif target_high <= 0.6:
+        perturb_func = perturb_table_moderate
+    elif target_high <= 0.8:
+        perturb_func = perturb_table_light
     else:
-        # Target 0.8-1.0 range: Start from ground truth and introduce small variations
-        modified = copy.deepcopy(gt_cells)
+        perturb_func = perturb_table_minimal
+    
+    best_cells = None
+    best_score = -1
+    best_diff = float('inf')
+    
+    for attempt in range(max_attempts):
+        intensity = 0.3 + random.random() * 0.7
+        perturbed_cells = perturb_func(gt_cells, intensity)
+        score = calculate_similarity_score(perturbed_cells, gt_cells)
         
-        # Apply minimal modifications (small shifts only)
-        num_mods = random.randint(1, 2)
-        for _ in range(num_mods):
-            modified = modify_cell_positions(modified, 'shift')
+        diff = abs(score - target_mid)
         
-        return modified, (0.8, 1.0)  # Target range: very high scores
+        # Check if score is in target range
+        if target_low <= score <= target_high:
+            return cells_to_dict(perturbed_cells), score
+        
+        # Keep track of best attempt
+        if diff < best_diff:
+            best_diff = diff
+            best_cells = perturbed_cells
+            best_score = score
+    
+    # Return best attempt even if not in range
+    if best_cells:
+        return cells_to_dict(best_cells), best_score
+    
+    return None, 0.0
 
 
-def create_medium_score_variant(gt_cells: List[Dict], generated_cells: List[Dict]) -> Tuple[List[Dict], float]:
-    """
-    Create a variant with medium similarity score.
+def load_scitsr_tables(scitsr_dir: Path, split: str = 'train', limit: int = None) -> List[Dict]:
+    """Load ground truth tables from SciTSR dataset."""
+    structure_dir = scitsr_dir / split / 'structure'
     
-    Returns:
-        Modified generated cells and expected score range
-    """
-    # Mix of ground truth and generated, with some modifications
-    modified = copy.deepcopy(generated_cells)
+    if not structure_dir.exists():
+        print(f"Warning: SciTSR structure directory not found: {structure_dir}")
+        return []
     
-    # Apply moderate modifications
-    num_mods = random.randint(1, 2)
-    for _ in range(num_mods):
-        mod_type = random.choice(['shift', 'merge'])
-        modified = modify_cell_positions(modified, mod_type)
+    tables = []
+    json_files = sorted(structure_dir.glob('*.json'))
     
-    return modified, (0.4, 0.6)  # Target range: medium scores
-
-
-def augment_sample(
-    metadata_entry: Dict,
-    generated_dir: Path,
-    gt_dir: Path,
-    target_score_range: Optional[Tuple[float, float]] = None,
-    variant_type: Optional[str] = None
-) -> Optional[Dict]:
-    """
-    Create an augmented version of a sample.
+    if limit:
+        json_files = json_files[:limit]
     
-    Args:
-        metadata_entry: Original metadata entry
-        generated_dir: Directory with generated JSON files
-        gt_dir: Directory with ground truth JSON files
-        target_score_range: Desired score range (min, max)
-        variant_type: 'low', 'high', 'medium', or None (random)
-    
-    Returns:
-        New metadata entry or None if failed
-    """
-    try:
-        # Load original files
-        gt_file = gt_dir / metadata_entry['ground_truth_file']
-        generated_file_path = metadata_entry['generated_file']
-        
-        # Try to find the generated file in various locations
-        generated_file = generated_dir / generated_file_path
-        if not generated_file.exists():
-            # Try augmented subdirectory
-            generated_file = generated_dir / 'augmented' / Path(generated_file_path).name
-        if not generated_file.exists():
-            # Try original location (without augmented prefix)
-            generated_file = generated_dir / Path(generated_file_path).name
-        
-        if not gt_file.exists() or not generated_file.exists():
-            return None
-        
-        with open(gt_file, 'r') as f:
-            gt_data = json.load(f)
-        with open(generated_file, 'r') as f:
-            generated_data = json.load(f)
-        
-        gt_cells = gt_data.get('cells', [])
-        generated_cells = generated_data.get('cells', [])
-        
-        # Determine variant type if not specified
-        if variant_type is None:
-            if target_score_range:
-                if target_score_range[1] < 0.4:
-                    variant_type = 'low'
-                elif target_score_range[0] >= 0.8:
-                    variant_type = 'very_high'
-                elif target_score_range[0] >= 0.6:
-                    variant_type = 'high'
-                else:
-                    variant_type = 'medium'
-            else:
-                variant_type = random.choice(['low', 'medium', 'high', 'very_high'])
-        
-        # Create variant
-        if variant_type == 'low':
-            modified_cells, expected_range = create_low_score_variant(gt_cells, generated_cells)
-        elif variant_type == 'very_high':
-            # Target 0.8-1.0 range
-            modified_cells, expected_range = create_high_score_variant(
-                gt_cells, generated_cells, target_range=(0.8, 1.0)
-            )
-        elif variant_type == 'high':
-            # Target 0.6-0.8 range
-            modified_cells, expected_range = create_high_score_variant(
-                gt_cells, generated_cells, target_range=(0.6, 0.8)
-            )
-        else:  # medium
-            modified_cells, expected_range = create_medium_score_variant(gt_cells, generated_cells)
-        
-        # Calculate actual score
-        # Only pass fields that Cell accepts (ignore 'tex' and other extra fields)
-        gt_cell_objects = [
-            Cell(
-                id=c.get('id', 0),
-                start_row=c.get('start_row', 0),
-                end_row=c.get('end_row', 0),
-                start_col=c.get('start_col', 0),
-                end_col=c.get('end_col', 0),
-                content=c.get('content', [])
-            )
-            for c in gt_cells
-        ]
-        modified_cell_objects = [
-            Cell(
-                id=c.get('id', 0),
-                start_row=c.get('start_row', 0),
-                end_row=c.get('end_row', 0),
-                start_col=c.get('start_col', 0),
-                end_col=c.get('end_col', 0),
-                content=c.get('content', [])
-            )
-            for c in modified_cells
-        ]
-        scores = evaluate_extraction(modified_cell_objects, gt_cell_objects)
-        new_score = scores['overall_score']
-        
-        # Check if score is in desired range
-        if target_score_range and not (target_score_range[0] <= new_score < target_score_range[1]):
-            # Try once more with different modifications
-            if variant_type == 'low':
-                modified_cells, _ = create_low_score_variant(gt_cells, generated_cells)
-            elif variant_type == 'very_high':
-                modified_cells, _ = create_high_score_variant(gt_cells, generated_cells, target_range=(0.8, 1.0))
-            elif variant_type == 'high':
-                modified_cells, _ = create_high_score_variant(gt_cells, generated_cells, target_range=(0.6, 0.8))
-            else:
-                modified_cells, _ = create_medium_score_variant(gt_cells, generated_cells)
-            
-            modified_cell_objects = [
-                Cell(
-                    id=c.get('id', 0),
-                    start_row=c.get('start_row', 0),
-                    end_row=c.get('end_row', 0),
-                    start_col=c.get('start_col', 0),
-                    end_col=c.get('end_col', 0),
-                    content=c.get('content', [])
-                )
-                for c in modified_cells
-            ]
-            scores = evaluate_extraction(modified_cell_objects, gt_cell_objects)
-            new_score = scores['overall_score']
-        
-        # Create new file
-        # Use a separate 'augmented' subdirectory to avoid permission issues
-        augmented_dir = generated_dir / 'augmented'
-        augmented_dir.mkdir(parents=True, exist_ok=True)
-        
-        new_id = f"{metadata_entry['id']}_aug_{variant_type}_{random.randint(1000, 9999)}"
-        new_generated_data = {'cells': modified_cells}
-        new_generated_file = augmented_dir / f"{new_id}.json"
-        
+    for json_file in tqdm(json_files, desc=f"Loading SciTSR {split}"):
         try:
-            with open(new_generated_file, 'w') as f:
-                json.dump(new_generated_data, f, indent=2)
-        except (PermissionError, OSError) as e:
-            print(f"Warning: Could not write to {new_generated_file}: {e}")
-            print(f"Trying alternative location...")
-            # Try writing to a temp directory or current directory
-            import tempfile
-            temp_dir = Path(tempfile.gettempdir()) / 'table_augmentation'
-            temp_dir.mkdir(parents=True, exist_ok=True)
-            new_generated_file = temp_dir / f"{new_id}.json"
-            with open(new_generated_file, 'w') as f:
-                json.dump(new_generated_data, f, indent=2)
-            print(f"Wrote to temporary location: {new_generated_file}")
+            with open(json_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            data['_source_file'] = json_file.name
+            tables.append(data)
+        except Exception as e:
+            print(f"Error loading {json_file}: {e}")
+    
+    return tables
+
+
+def load_huggingface_dataset(split: str = 'train', limit: int = None) -> List[Dict]:
+    """Load existing samples from Hugging Face dataset."""
+    try:
+        from datasets import load_dataset
         
-        # Create new metadata entry
-        # Store relative path from generated_dir
-        if 'augmented' in str(new_generated_file):
-            # File is in augmented subdirectory
-            relative_path = f"augmented/{new_id}.json"
-        else:
-            # File is in temp directory or elsewhere
-            relative_path = str(new_generated_file.name)
+        print(f"Loading {split} split from Hugging Face...")
+        dataset = load_dataset("rayhu/table-extraction-evaluation", split=split)
         
-        new_metadata = {
-            'id': new_id,
-            'ground_truth_file': metadata_entry['ground_truth_file'],
-            'generated_file': relative_path,
-            'similarity_score': new_score,
-            'augmented_from': metadata_entry['id'],
-            'augmentation_type': variant_type
-        }
+        if limit:
+            dataset = dataset.select(range(min(limit, len(dataset))))
         
-        return new_metadata
+        samples = []
+        for example in tqdm(dataset, desc=f"Loading HF {split}"):
+            samples.append({
+                'id': example['id'],
+                'similarity_score': example['similarity_score'],
+                'ground_truth': example['ground_truth'],
+                'generated': example['generated']
+            })
+        
+        return samples
         
     except Exception as e:
-        print(f"Error augmenting {metadata_entry.get('id', 'unknown')}: {str(e)}")
-        return None
+        print(f"Failed to load from Hugging Face: {e}")
+        return []
 
 
-def oversample_range(
-    metadata_file: Path,
-    generated_dir: Path,
-    gt_dir: Path,
-    target_range: Tuple[float, float],
-    target_count: int,
-    variant_type: str
+def analyze_distribution(samples: List[Dict]) -> Dict[str, int]:
+    """Analyze the score distribution of samples."""
+    bins = [(0.0, 0.2), (0.2, 0.4), (0.4, 0.6), (0.6, 0.8), (0.8, 1.0)]
+    bin_labels = ['0.0-0.2', '0.2-0.4', '0.4-0.6', '0.6-0.8', '0.8-1.0']
+    
+    counts = {label: 0 for label in bin_labels}
+    
+    for sample in samples:
+        score = sample['similarity_score']
+        for (low, high), label in zip(bins, bin_labels):
+            if low <= score < high or (label == '0.8-1.0' and score == 1.0):
+                counts[label] += 1
+                break
+    
+    return counts
+
+
+def create_balanced_dataset(
+    hf_samples: List[Dict],
+    scitsr_tables: List[Dict],
+    target_per_bin: int = 5000,
+    output_dir: Path = None
 ) -> List[Dict]:
     """
-    Oversample a specific score range.
+    Create a balanced dataset by augmenting underrepresented ranges.
     
     Args:
-        metadata_file: Original metadata file
-        target_range: (min_score, max_score) to target
-        target_count: Number of samples to generate
-        variant_type: 'low', 'high', or 'medium'
+        hf_samples: Existing samples from Hugging Face
+        scitsr_tables: Ground truth tables from SciTSR
+        target_per_bin: Target number of samples per score range
+        output_dir: Directory to save augmented samples
     
     Returns:
-        List of new metadata entries
+        List of all samples (existing + augmented)
     """
-    # Load all samples
-    all_samples = []
-    with open(metadata_file, 'r') as f:
-        for line in f:
-            all_samples.append(json.loads(line))
+    bins = [(0.0, 0.2), (0.2, 0.4), (0.4, 0.6), (0.6, 0.8), (0.8, 1.0)]
+    bin_labels = ['0.0-0.2', '0.2-0.4', '0.4-0.6', '0.6-0.8', '0.8-1.0']
     
-    # Filter samples in target range (or nearby)
-    candidates = [s for s in all_samples if target_range[0] <= s['similarity_score'] < target_range[1]]
+    # Categorize existing samples
+    binned_samples = {label: [] for label in bin_labels}
     
-    # If not enough candidates, use all samples
-    if len(candidates) < target_count:
-        candidates = all_samples
+    for sample in hf_samples:
+        score = sample['similarity_score']
+        for (low, high), label in zip(bins, bin_labels):
+            if low <= score < high or (label == '0.8-1.0' and score == 1.0):
+                binned_samples[label].append(sample)
+                break
     
-    # Generate augmented samples
-    new_samples = []
-    for _ in tqdm(range(target_count), desc=f"Augmenting {variant_type} range"):
-        base_sample = random.choice(candidates)
-        augmented = augment_sample(
-            base_sample,
-            generated_dir,
-            gt_dir,
-            target_score_range=target_range,
-            variant_type=variant_type
-        )
-        if augmented:
-            new_samples.append(augmented)
+    print("\n📊 Initial Distribution:")
+    for label in bin_labels:
+        count = len(binned_samples[label])
+        print(f"  {label}: {count:5d} samples")
     
-    return new_samples
-
-
-def augment_dataset(
-    metadata_file: Path,
-    generated_dir: Path,
-    gt_dir: Path,
-    output_metadata: Path,
-    target_distribution: Optional[Dict[str, int]] = None,
-    augmentation_factor: float = 1.0
-) -> None:
-    """
-    Augment the dataset to balance score distribution.
+    # Calculate how many samples to generate for each bin
+    to_generate = {}
+    for label in bin_labels:
+        current = len(binned_samples[label])
+        needed = max(0, target_per_bin - current)
+        to_generate[label] = needed
     
-    Args:
-        metadata_file: Input metadata JSONL file
-        generated_dir: Directory with generated JSON files
-        gt_dir: Directory with ground truth JSON files
-        output_metadata: Output metadata JSONL file
-        target_distribution: Target counts per range (optional)
-        augmentation_factor: Multiplier for augmentation (1.0 = balance to current max)
-    """
-    # Analyze current distribution
-    print("Analyzing current distribution...")
-    analysis = analyze_score_distribution(metadata_file)
+    print("\n🎯 Samples to Generate:")
+    for label in bin_labels:
+        print(f"  {label}: {to_generate[label]:5d} needed")
     
-    if not analysis:
-        print("Error: Could not analyze distribution")
-        return
+    # Generate synthetic samples
+    augmented_samples = []
+    scitsr_idx = 0
     
-    print("\nCurrent Distribution:")
-    print(f"Total samples: {analysis['total']}")
-    print(f"Mean score: {analysis['mean']:.3f}")
-    print(f"Score range: {analysis['min']:.3f} - {analysis['max']:.3f}")
-    print("\nScore buckets:")
-    for label, info in analysis['distribution'].items():
-        print(f"  {label:12} ({info['range'][0]:.1f}-{info['range'][1]:.1f}): "
-              f"{info['count']:4d} ({info['percentage']:5.1f}%)")
-    
-    # Determine target counts
-    if target_distribution is None:
-        # Balance to the maximum count in any bucket
-        max_count = max(info['count'] for info in analysis['distribution'].values())
-        target_distribution = {
-            'Very Low': int(max_count * augmentation_factor * 0.3),  # Less for extremes
-            'Low': int(max_count * augmentation_factor * 0.7),
-            'Medium': int(max_count * augmentation_factor),  # Keep current
-            'High': int(max_count * augmentation_factor * 0.7),
-            'Very High': int(max_count * augmentation_factor * 0.3)
-        }
-    
-    print("\nTarget Distribution:")
-    for label, target_count in target_distribution.items():
-        current = analysis['distribution'][label]['count']
-        needed = max(0, target_count - current)
-        print(f"  {label:12}: Current={current:4d}, Target={target_count:4d}, Need={needed:4d}")
-    
-    # Load original samples
-    print("\nLoading original samples...")
-    original_samples = []
-    with open(metadata_file, 'r') as f:
-        for line in f:
-            original_samples.append(json.loads(line))
-    
-    # Generate augmented samples
-    print("\nGenerating augmented samples...")
-    all_new_samples = []
-    
-    ranges = {
-        'Very Low': ((0.0, 0.2), 'low'),
-        'Low': ((0.2, 0.4), 'low'),
-        'High': ((0.6, 0.8), 'high'),
-        'Very High': ((0.8, 1.0), 'very_high')
-    }
-    
-    for label, (score_range, variant_type) in ranges.items():
-        current_count = analysis['distribution'][label]['count']
-        target_count = target_distribution[label]
-        needed = max(0, target_count - current_count)
+    for (low, high), label in zip(bins, bin_labels):
+        needed = to_generate[label]
+        if needed <= 0:
+            continue
         
-        if needed > 0:
-            print(f"\nAugmenting {label} range ({score_range[0]:.1f}-{score_range[1]:.1f})...")
-            new_samples = oversample_range(
-                metadata_file,
-                generated_dir,
-                gt_dir,
-                score_range,
-                needed,
-                variant_type
+        print(f"\n🔄 Generating {needed} samples for range {label}...")
+        
+        generated_count = 0
+        attempts = 0
+        max_total_attempts = needed * 10  # Allow multiple attempts per sample
+        
+        pbar = tqdm(total=needed, desc=f"  {label}")
+        
+        while generated_count < needed and attempts < max_total_attempts:
+            # Cycle through SciTSR tables
+            gt_table = scitsr_tables[scitsr_idx % len(scitsr_tables)]
+            scitsr_idx += 1
+            attempts += 1
+            
+            generated_dict, actual_score = generate_sample_with_target_score(
+                gt_table, (low, high), max_attempts=30
             )
-            all_new_samples.extend(new_samples)
-            print(f"  Generated {len(new_samples)} new samples")
-    
-    # Write output
-    print(f"\nWriting augmented dataset to {output_metadata}...")
-    with open(output_metadata, 'w', encoding='utf-8') as f:
-        # Write original samples
-        for sample in original_samples:
-            f.write(json.dumps(sample, ensure_ascii=False) + '\n')
+            
+            if generated_dict is None:
+                continue
+            
+            # Check if score is in target range
+            if low <= actual_score < high or (label == '0.8-1.0' and actual_score >= 0.8):
+                sample = {
+                    'id': f"aug_{label}_{generated_count}",
+                    'similarity_score': actual_score,
+                    'ground_truth': gt_table,
+                    'generated': generated_dict,
+                    '_augmented': True,
+                    '_source': gt_table.get('_source_file', 'unknown')
+                }
+                augmented_samples.append(sample)
+                binned_samples[label].append(sample)
+                generated_count += 1
+                pbar.update(1)
         
-        # Write augmented samples
-        for sample in all_new_samples:
-            f.write(json.dumps(sample, ensure_ascii=False) + '\n')
+        pbar.close()
+        
+        if generated_count < needed:
+            print(f"  ⚠️  Only generated {generated_count}/{needed} samples for {label}")
     
-    # Analyze final distribution
-    print("\nFinal Distribution:")
-    final_analysis = analyze_score_distribution(output_metadata)
-    print(f"Total samples: {final_analysis['total']} (original: {analysis['total']}, new: {len(all_new_samples)})")
-    print(f"Mean score: {final_analysis['mean']:.3f}")
-    print("\nFinal score buckets:")
-    for label, info in final_analysis['distribution'].items():
-        print(f"  {label:12} ({info['range'][0]:.1f}-{info['range'][1]:.1f}): "
-              f"{info['count']:4d} ({info['percentage']:5.1f}%)")
+    # Combine all samples
+    all_samples = hf_samples + augmented_samples
+    
+    print("\n📊 Final Distribution:")
+    final_dist = analyze_distribution(all_samples)
+    for label in bin_labels:
+        print(f"  {label}: {final_dist[label]:5d} samples")
+    
+    print(f"\n✅ Total samples: {len(all_samples)}")
+    print(f"   Original: {len(hf_samples)}")
+    print(f"   Augmented: {len(augmented_samples)}")
+    
+    # Save augmented samples if output directory specified
+    if output_dir:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save augmented samples
+        aug_file = output_dir / 'augmented_samples.json'
+        with open(aug_file, 'w') as f:
+            json.dump(augmented_samples, f)
+        print(f"\n💾 Augmented samples saved to: {aug_file}")
+        
+        # Save distribution info
+        dist_file = output_dir / 'augmented_distribution.json'
+        dist_info = {
+            'original_count': len(hf_samples),
+            'augmented_count': len(augmented_samples),
+            'total_count': len(all_samples),
+            'target_per_bin': target_per_bin,
+            'final_distribution': final_dist
+        }
+        with open(dist_file, 'w') as f:
+            json.dump(dist_info, f, indent=2)
+        print(f"💾 Distribution info saved to: {dist_file}")
+    
+    return all_samples
+
+
+def plot_distributions(original_dist: Dict, augmented_dist: Dict, output_path: Path):
+    """Plot comparison of original and augmented distributions."""
+    import matplotlib.pyplot as plt
+    
+    labels = list(original_dist.keys())
+    original_counts = [original_dist[l] for l in labels]
+    augmented_counts = [augmented_dist[l] for l in labels]
+    
+    x = np.arange(len(labels))
+    width = 0.35
+    
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
+    bars1 = ax.bar(x - width/2, original_counts, width, label='Original', 
+                   color='#FF6B6B', edgecolor='black', alpha=0.8)
+    bars2 = ax.bar(x + width/2, augmented_counts, width, label='Augmented',
+                   color='#4ECDC4', edgecolor='black', alpha=0.8)
+    
+    # Add value labels
+    for bars in [bars1, bars2]:
+        for bar in bars:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height + 100,
+                    f'{int(height)}', ha='center', va='bottom', fontsize=9)
+    
+    ax.set_xlabel('Quality Score Range', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Number of Samples', fontsize=12, fontweight='bold')
+    ax.set_title('Dataset Distribution: Original vs Augmented', fontsize=14, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.legend(fontsize=11)
+    ax.grid(True, axis='y', alpha=0.3, linestyle='--')
+    ax.set_axisbelow(True)
+    
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    print(f"📊 Distribution plot saved to: {output_path}")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Augment table extraction evaluation dataset to balance score distribution"
+        description="Augment and balance the table extraction evaluation dataset"
     )
     parser.add_argument(
-        '--metadata',
+        '--scitsr-dir',
         type=Path,
-        required=True,
-        help='Input metadata JSONL file'
+        default=Path('SciTSR'),
+        help='Path to SciTSR dataset directory'
     )
     parser.add_argument(
-        '--generated',
+        '--output-dir',
         type=Path,
-        required=True,
-        help='Directory containing generated JSON files'
+        default=Path('data_augmented'),
+        help='Directory to save augmented data'
     )
     parser.add_argument(
-        '--ground-truth',
-        type=Path,
-        required=True,
-        help='Directory containing ground truth JSON files'
-    )
-    parser.add_argument(
-        '--output',
-        type=Path,
-        required=True,
-        help='Output metadata JSONL file'
-    )
-    parser.add_argument(
-        '--augmentation-factor',
-        type=float,
-        default=1.0,
-        help='Augmentation factor (1.0 = balance to max, 2.0 = double max, etc.)'
-    )
-    parser.add_argument(
-        '--target-very-low',
+        '--target-per-bin',
         type=int,
-        help='Target count for Very Low (0.0-0.2) range'
+        default=5000,
+        help='Target number of samples per score range (default: 5000)'
     )
     parser.add_argument(
-        '--target-low',
+        '--hf-limit',
         type=int,
-        help='Target count for Low (0.2-0.4) range'
+        default=None,
+        help='Limit on Hugging Face samples to load (for testing)'
     )
     parser.add_argument(
-        '--target-medium',
+        '--scitsr-limit',
         type=int,
-        help='Target count for Medium (0.4-0.6) range'
+        default=None,
+        help='Limit on SciTSR tables to load (for testing)'
     )
     parser.add_argument(
-        '--target-high',
+        '--seed',
         type=int,
-        help='Target count for High (0.6-0.8) range'
-    )
-    parser.add_argument(
-        '--target-very-high',
-        type=int,
-        help='Target count for Very High (0.8-1.0) range'
+        default=42,
+        help='Random seed for reproducibility'
     )
     
     args = parser.parse_args()
     
-    # Validate paths
-    if not args.metadata.exists():
-        print(f"Error: Metadata file does not exist: {args.metadata}")
+    # Set random seed
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    
+    print("="*70)
+    print("TABLE EXTRACTION DATASET AUGMENTATION")
+    print("="*70)
+    
+    # Load existing data
+    print("\n📥 Loading existing dataset...")
+    hf_samples = load_huggingface_dataset('train', limit=args.hf_limit)
+    
+    if not hf_samples:
+        print("❌ Failed to load Hugging Face dataset. Exiting.")
         return 1
     
-    if not args.generated.exists():
-        print(f"Error: Generated directory does not exist: {args.generated}")
+    # Analyze original distribution
+    original_dist = analyze_distribution(hf_samples)
+    
+    # Load SciTSR tables
+    print("\n📥 Loading SciTSR ground truth tables...")
+    scitsr_tables = load_scitsr_tables(args.scitsr_dir, 'train', limit=args.scitsr_limit)
+    
+    if not scitsr_tables:
+        print("❌ Failed to load SciTSR tables. Exiting.")
         return 1
     
-    if not args.ground_truth.exists():
-        print(f"Error: Ground truth directory does not exist: {args.ground_truth}")
-        return 1
+    print(f"   Loaded {len(scitsr_tables)} SciTSR tables")
     
-    # Build target distribution if specified
-    target_dist = None
-    if any([args.target_very_low, args.target_low, args.target_medium, 
-            args.target_high, args.target_very_high]):
-        target_dist = {
-            'Very Low': args.target_very_low or 0,
-            'Low': args.target_low or 0,
-            'Medium': args.target_medium or 0,
-            'High': args.target_high or 0,
-            'Very High': args.target_very_high or 0
-        }
-    
-    # Run augmentation
-    augment_dataset(
-        args.metadata,
-        args.generated,
-        args.ground_truth,
-        args.output,
-        target_distribution=target_dist,
-        augmentation_factor=args.augmentation_factor
+    # Create balanced dataset
+    print("\n🔄 Creating balanced dataset...")
+    balanced_samples = create_balanced_dataset(
+        hf_samples,
+        scitsr_tables,
+        target_per_bin=args.target_per_bin,
+        output_dir=args.output_dir
     )
+    
+    # Plot distributions
+    augmented_dist = analyze_distribution(balanced_samples)
+    plot_path = args.output_dir / 'distribution_comparison.png'
+    plot_distributions(original_dist, augmented_dist, plot_path)
+    
+    print("\n" + "="*70)
+    print("✅ AUGMENTATION COMPLETE!")
+    print("="*70)
     
     return 0
 
 
 if __name__ == '__main__':
+    import sys
     sys.exit(main())
-

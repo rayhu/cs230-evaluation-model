@@ -253,11 +253,12 @@ def evaluate(model, dataloader, loss_fn, device):
     r2 = 1 - (ss_res / (ss_tot + epsilon))
     r2 = r2.item()
     
-    # Tolerance-based accuracy (percentage within ±1%, ±5%, ±10%)
+    # Tolerance-based accuracy (percentage within ±1%, ±5%, ±10%, ±15%)
     abs_diff = torch.abs(all_preds - all_targets)
     acc_1pct = (abs_diff <= 0.01).float().mean().item() * 100
     acc_5pct = (abs_diff <= 0.05).float().mean().item() * 100
     acc_10pct = (abs_diff <= 0.10).float().mean().item() * 100
+    acc_15pct = (abs_diff <= 0.15).float().mean().item() * 100
     
     # Median Absolute Error (more robust to outliers)
     median_ae = torch.median(abs_diff).item()
@@ -271,6 +272,7 @@ def evaluate(model, dataloader, loss_fn, device):
         'acc_1pct': acc_1pct,  # % predictions within ±0.01 of truth
         'acc_5pct': acc_5pct,  # % predictions within ±0.05 of truth
         'acc_10pct': acc_10pct,  # % predictions within ±0.10 of truth
+        'acc_15pct': acc_15pct,  # % predictions within ±0.15 of truth
         'median_ae': median_ae  # Median absolute error
     }
 
@@ -417,6 +419,7 @@ def train_model(
         print(f"  Acc (±1%):   {val_metrics['acc_1pct']:.1f}%")
         print(f"  Acc (±5%):   {val_metrics['acc_5pct']:.1f}%")
         print(f"  Acc (±10%):  {val_metrics['acc_10pct']:.1f}%")
+        print(f"  Acc (±15%):  {val_metrics['acc_15pct']:.1f}%")
         
         # Log LR changes
         if new_lr != old_lr:
@@ -470,6 +473,7 @@ def plot_training_history(history, save_dir: Path):
     val_acc_1pct = [m['acc_1pct'] for m in history['val_metrics']]
     val_acc_5pct = [m['acc_5pct'] for m in history['val_metrics']]
     val_acc_10pct = [m['acc_10pct'] for m in history['val_metrics']]
+    val_acc_15pct = [m['acc_15pct'] for m in history['val_metrics']]
     
     # Create figure with 3 subplots
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
@@ -508,12 +512,13 @@ def plot_training_history(history, save_dir: Path):
     line2 = ax3_2.plot(epochs, val_acc_1pct, 'green', linewidth=2, label='Acc (±1%)', marker='^', markersize=4)
     line3 = ax3_2.plot(epochs, val_acc_5pct, 'blue', linewidth=2, label='Acc (±5%)', marker='o', markersize=4)
     line4 = ax3_2.plot(epochs, val_acc_10pct, 'cyan', linewidth=2, label='Acc (±10%)', marker='s', markersize=4)
+    line5 = ax3_2.plot(epochs, val_acc_15pct, 'magenta', linewidth=2, label='Acc (±15%)', marker='D', markersize=4)
     ax3_2.set_ylabel('Accuracy (%)', fontsize=12, color='blue')
     ax3_2.tick_params(axis='y', labelcolor='blue')
     ax3_2.set_ylim([0, 100])
     
     # Combine legends
-    lines = line1 + line2 + line3 + line4
+    lines = line1 + line2 + line3 + line4 + line5
     labels = [l.get_label() for l in lines]
     ax3_1.legend(lines, labels, fontsize=10, loc='best')
     ax3_1.set_title('R² and Accuracy Metrics', fontsize=14, fontweight='bold')
@@ -773,4 +778,3 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
-
